@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("R2-D20B")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+73306bdf6b8c53703f226e26f5767c13fb74150b")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+5349612f8106741dbae0cfb8bbd15949a3a55dab")]
 [assembly: System.Reflection.AssemblyProductAttribute("R2-D20B")]
 [assembly: System.Reflection.AssemblyTitleAttribute("R2-D20B")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
