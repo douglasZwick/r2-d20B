@@ -1,0 +1,67 @@
+###
+# Build Output
+###
+
+bin/
+obj/
+out/
+
+###
+# VS Code
+###
+
+.vscode/
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/tasks.json
+
+###
+# User-specific / local-only
+###
+
+*.user
+*.suo
+
+###
+# NuGet
+###
+
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+**/packages/
+
+###
+# Logs / temp
+###
+
+*.log
+*.cache
+*.tmp
+
+###
+# Secrets / local configs
+###
+
+.env
+*.env
+appsettings.Local.json
+appsettings.Development.json
+secrets.json
+
+###
+# OS cruft
+###
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# macOS
+.DS_Store
+
+# Linux / editors
+*~
