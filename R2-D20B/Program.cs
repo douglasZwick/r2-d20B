@@ -16,31 +16,18 @@ namespace R2D20B
       var builder =
         DiscordClientBuilder.CreateDefault(token, DiscordIntents.All);
 
-      // builder.UseCommands(
-      //   (IServiceProvider services, CommandsExtension extension) =>
-      //   {
-          
-      //   }
-      // );
+      builder.UseCommands((services, extension) =>
+      {
+        extension.AddCommands(typeof(Commands.BasicCommands));
+      });
       
       var client = builder.Build();
 
       var status =
-        new DiscordActivity("with power", DiscordActivityType.Playing);
+        new DiscordActivity("Ligma", DiscordActivityType.Playing);
       await client.ConnectAsync(status, DiscordUserStatus.Online);
 
       await Task.Delay(-1);
-    }
-
-
-    private static ulong ReadDebugGuildIdFromEnvironment()
-    {
-      var rawString = Environment.GetEnvironmentVariable("DEBUG_GUILD_ID");
-
-      if (ulong.TryParse(rawString, out var id))
-        return id;
-      
-      return 0;
     }
   }
 }

@@ -17,5 +17,16 @@ namespace R2D20B
         "environment variable to the token value and try again."
       );
     }
+
+
+    public static ulong GetDebugGuildId()
+    {
+      var rawString = Environment.GetEnvironmentVariable("DEBUG_GUILD_ID");
+
+      if (ulong.TryParse(rawString, out var id))
+        return id;
+      
+      return 0;
+    }
   }
 }
