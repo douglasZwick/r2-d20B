@@ -1,14 +1,10 @@
 using DSharpPlus;
 using DSharpPlus.Commands;
-using DSharpPlus.SlashCommands;
 using DSharpPlus.Entities;
-using DSharpPlus.VoiceNext;
 using R2D20B.Commands;
 using DSharpPlus.Commands.EventArgs;
 using R2D20B.Attributes;
 using DSharpPlus.Commands.Processors.TextCommands;
-using System.Text;
-using DSharpPlus.Commands.Trees;
 using Microsoft.Extensions.DependencyInjection;
 
 

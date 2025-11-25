@@ -141,7 +141,8 @@ namespace R2D20B.Commands
       var mQuery = from m in members where
         m.Nickname == memberName ||
         m.DisplayName == memberName ||
-        m.GlobalName == memberName select m;
+        m.GlobalName == memberName ||
+        m.Username == memberName select m;
 
       var guildName = ctx.Guild.Name;
       
