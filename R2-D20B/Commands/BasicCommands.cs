@@ -140,7 +140,6 @@ namespace R2D20B.Commands
       var members = ctx.Guild.Members.Values;
       var mQuery = from m in members where
         m.Nickname == memberName ||
-        m.DisplayName == memberName ||
         m.GlobalName == memberName ||
         m.Username == memberName select m;
 
