@@ -6,6 +6,7 @@ using DSharpPlus.Commands.EventArgs;
 using R2D20B.Attributes;
 using DSharpPlus.Commands.Processors.TextCommands;
 using Microsoft.Extensions.DependencyInjection;
+using DSharpPlus.EventArgs;
 
 
 namespace R2D20B
@@ -14,7 +15,9 @@ namespace R2D20B
   {
     public DiscordClient m_Client;
     public CommandsExtension? m_CommandsExtension;
-    // public IEnumerable<Command> m_Commands { get; private set; } = [];
+    public DiscordGuild? m_DebugGuild;
+    public ulong m_BotTestingChannelId;
+    public readonly string m_BotTestingChannelName = "bot-testing";
 
 
     public Bot()
@@ -34,6 +37,10 @@ namespace R2D20B
           
           extension.CommandExecuted += OnCommandExecuted;
         })
+        .ConfigureEventHandlers(b => b
+          .HandleMessageCreated(OnMessageCreated)
+          .HandleGuildDownloadCompleted(OnGuildDownloadCompleted)
+        )
         .Build();
       
       // m_Commands = m_CommandsExtension!.Commands.Values;
@@ -49,7 +56,7 @@ namespace R2D20B
     }
 
 
-    public async Task OnCommandExecuted(CommandsExtension extension,
+    private async Task OnCommandExecuted(CommandsExtension extension,
       CommandExecutedEventArgs e)
     {
       var attribs = e.Context.Command.Attributes;
@@ -71,6 +78,33 @@ namespace R2D20B
           }
         }
       }
+    }
+
+
+    private async Task OnMessageCreated(DiscordClient client,
+      MessageCreatedEventArgs e)
+    {
+      if (e.Channel.Id != m_BotTestingChannelId) return;
+      if (e.Author == client.CurrentUser) return;
+
+      await e.Message.RespondAsync($"Message received: {e.Message.Content}");
+    }
+
+
+    private async Task OnGuildDownloadCompleted(DiscordClient client,
+      GuildDownloadCompletedEventArgs e)
+    {
+      DiscordGuild? guild;
+
+      if (!e.Guilds.TryGetValue(BotConfig.GetDebugGuildId(), out guild)) return;
+
+      m_DebugGuild = guild;
+      var botTestingChannel = guild.Channels.Values.Where(
+        c => c.Name == m_BotTestingChannelName).FirstOrDefault();
+      
+      if (botTestingChannel is null) return;
+
+      m_BotTestingChannelId = botTestingChannel.Id;
     }
   }
 }
