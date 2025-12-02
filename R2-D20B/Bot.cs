@@ -7,6 +7,9 @@ using R2D20B.Attributes;
 using DSharpPlus.Commands.Processors.TextCommands;
 using Microsoft.Extensions.DependencyInjection;
 using DSharpPlus.EventArgs;
+using System.Text.RegularExpressions;
+using System.Text;
+using System.ComponentModel.DataAnnotations;
 
 
 namespace R2D20B
@@ -18,6 +21,10 @@ namespace R2D20B
     public DiscordGuild? m_DebugGuild;
     public ulong m_BotTestingChannelId;
     public readonly string m_BotTestingChannelName = "bot-testing";
+    public readonly bool m_TestingChannelOnly = true;
+
+    private string m_UrlMatchPattern = @"\b(?:(?:https?)://)?" +
+      @"(?:www\.)?(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:/[^\s]*)?";
 
 
     public Bot()
@@ -81,16 +88,6 @@ namespace R2D20B
     }
 
 
-    private async Task OnMessageCreated(DiscordClient client,
-      MessageCreatedEventArgs e)
-    {
-      if (e.Channel.Id != m_BotTestingChannelId) return;
-      if (e.Author == client.CurrentUser) return;
-
-      await e.Message.RespondAsync($"Message received: {e.Message.Content}");
-    }
-
-
     private async Task OnGuildDownloadCompleted(DiscordClient client,
       GuildDownloadCompletedEventArgs e)
     {
@@ -105,6 +102,92 @@ namespace R2D20B
       if (botTestingChannel is null) return;
 
       m_BotTestingChannelId = botTestingChannel.Id;
+    }
+
+
+    private async Task OnMessageCreated(DiscordClient client,
+      MessageCreatedEventArgs e)
+    {
+      if (e.Author == client.CurrentUser) return;
+
+      await HandleUrls(client, e);
+    }
+
+
+    private async Task HandleUrls(DiscordClient client,
+      MessageCreatedEventArgs e)
+    {
+      var urls = ExtractUrls(e.Message.Content);
+      var count = urls.Count;
+
+      if (count <= 0) return;
+
+      await HandleTwitterUrls(client, e, urls);
+    }
+
+
+    private List<string> ExtractUrls(string input)
+    {
+      var output = new List<string>();
+      var matches = Regex.Matches(input, m_UrlMatchPattern);
+
+      foreach (Match match in matches)
+        output.Add(match.ToString());
+      
+      return output;
+    }
+
+
+    private async Task HandleTwitterUrls(DiscordClient client,
+      MessageCreatedEventArgs e, List<string> urls)
+    {
+      var fixedUrls = new List<string>();
+
+      foreach (var url in urls)
+      {
+        var fixedUrl = FixTwitterLink(url);
+
+        if (!string.IsNullOrEmpty(fixedUrl))
+          fixedUrls.Add(fixedUrl);
+      }
+
+      if (fixedUrls.Count <= 0) return;
+
+      var replySb = new StringBuilder();
+
+      foreach (var fixedUrl in fixedUrls)
+        replySb.AppendLine(fixedUrl);
+
+      await e.Message.ModifyEmbedSuppressionAsync(true);
+      await e.Message.RespondAsync(replySb.ToString());
+    }
+
+
+    private string FixTwitterLink(string url)
+    {
+      if (!(url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+        url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)))
+        url = "https://" + url;
+      
+      if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        return string.Empty;
+      
+      var host = uri.Host;
+      
+      if (host.Equals("vxtwitter.com", StringComparison.OrdinalIgnoreCase) ||
+        host.EndsWith(".vxtwitter.com", StringComparison.OrdinalIgnoreCase)) 
+        return string.Empty;
+      if (!(host.Equals("twitter.com", StringComparison.OrdinalIgnoreCase) ||
+        host.EndsWith(".twitter.com", StringComparison.OrdinalIgnoreCase) ||
+        host.Equals("x.com", StringComparison.OrdinalIgnoreCase) ||
+        host.EndsWith(".x.com", StringComparison.OrdinalIgnoreCase)))
+        return string.Empty;
+
+      var leftSide = "https://vxtwitter.com";
+      var pathAndQuery = uri.PathAndQuery;
+      var fragment = uri.Fragment;
+
+      return leftSide + pathAndQuery + fragment;
     }
   }
 }
