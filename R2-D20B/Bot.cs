@@ -9,33 +9,37 @@ using Microsoft.Extensions.DependencyInjection;
 using DSharpPlus.EventArgs;
 using System.Text.RegularExpressions;
 using System.Text;
-using System.ComponentModel.DataAnnotations;
+using Microsoft.Extensions.Hosting;
+using R2D20B.Handlers;
 
 
 namespace R2D20B
 {
-  internal class Bot
+  internal class Bot : IHostedService
   {
-    public DiscordClient m_Client;
     public CommandsExtension? m_CommandsExtension;
     public DiscordGuild? m_DebugGuild;
     public ulong m_BotTestingChannelId;
     public readonly string m_BotTestingChannelName = "bot-testing";
     public readonly bool m_TestingChannelOnly = true;
 
+    private readonly DiscordClient m_Client;
+    private readonly IEnumerable<IUrlHandler> m_UrlHandlers;
     private string m_UrlMatchPattern = @"\b(?:(?:https?)://)?" +
       @"(?:www\.)?(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:/[^\s]*)?";
 
 
-    public Bot()
+    public Bot(IEnumerable<IUrlHandler> urlHandlers)
     {
+      m_UrlHandlers = urlHandlers;
+
       var token = BotConfig.GetToken();
 
       m_Client = DiscordClientBuilder
         .CreateDefault(token, DiscordIntents.All)
         .ConfigureServices(services =>
         {
-          services.AddSingleton(this);
+          services.AddSingleton(_ => this);
         })
         .UseCommands((services, extension) =>
         {
@@ -49,17 +53,19 @@ namespace R2D20B
           .HandleGuildDownloadCompleted(OnGuildDownloadCompleted)
         )
         .Build();
-      
-      // m_Commands = m_CommandsExtension!.Commands.Values;
     }
 
-    public async Task RunAsync()
-    {
-      var status =
-        new DiscordActivity("Ligma", DiscordActivityType.Playing);
-      await m_Client.ConnectAsync(status, DiscordUserStatus.Online);
 
-      await Task.Delay(-1);
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+      var status = new DiscordActivity("Ligma", DiscordActivityType.Playing);
+      return m_Client.ConnectAsync(status, DiscordUserStatus.Online);
+    }
+
+
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+      return m_Client.DisconnectAsync();
     }
 
 
@@ -117,22 +123,39 @@ namespace R2D20B
     private async Task HandleUrls(DiscordClient client,
       MessageCreatedEventArgs e)
     {
-      var urls = ExtractUrls(e.Message.Content);
-      var count = urls.Count;
+      var urlInfos = CreateUrlInfoList(e.Message.Content);
+      var count = urlInfos.Count;
 
       if (count <= 0) return;
 
-      await HandleTwitterUrls(client, e, urls);
+      foreach (var handler in m_UrlHandlers)
+        await handler.HandleAsync(urlInfos, e);
     }
 
 
     private List<string> ExtractUrls(string input)
     {
       var output = new List<string>();
-      var matches = Regex.Matches(input, m_UrlMatchPattern);
+      var matches = Regex.Matches(input, m_UrlMatchPattern).Cast<Match>();
 
-      foreach (Match match in matches)
+      foreach (var match in matches)
         output.Add(match.ToString());
+      
+      return output;
+    }
+
+
+    private List<UrlInfo> CreateUrlInfoList(string input)
+    {
+      var output = new List<UrlInfo>();
+      var matches = Regex.Matches(input, m_UrlMatchPattern).Cast<Match>();
+
+      foreach (var match in matches)
+      {
+        var urlInfo = new UrlInfo(match.Value);
+        if (!urlInfo.IsValid) continue;
+        output.Add(urlInfo);
+      }
       
       return output;
     }
@@ -160,6 +183,12 @@ namespace R2D20B
 
       await e.Message.ModifyEmbedSuppressionAsync(true);
       await e.Message.RespondAsync(replySb.ToString());
+    }
+
+
+    private async Task GetTweetInfoAsync(string url)
+    {
+      
     }
 
 
