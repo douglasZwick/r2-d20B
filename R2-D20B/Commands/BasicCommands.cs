@@ -5,6 +5,7 @@ using DSharpPlus.Commands;
 using DSharpPlus.Commands.Trees;
 using DSharpPlus.Entities;
 using R2D20B.Attributes;
+using DSharpPlus.Commands.Trees.Metadata;
 
 
 namespace R2D20B.Commands
@@ -12,11 +13,13 @@ namespace R2D20B.Commands
   internal class BasicCommands
   {
     private readonly Bot m_Bot;
+    private readonly HttpClient m_HttpClient;
 
 
-    public BasicCommands(Bot bot)
+    public BasicCommands(Bot bot, HttpClient httpClient)
     {
       m_Bot = bot;
+      m_HttpClient = httpClient;
     }
 
 
@@ -28,6 +31,7 @@ namespace R2D20B.Commands
 
 
     [Command("ping")]
+    [TextAlias("pong", "beep")]
     [Description("Used as a simple acknowledgement that I'm online.")]
     public async ValueTask Ping(CommandContext ctx)
     {
@@ -173,6 +177,26 @@ namespace R2D20B.Commands
       outputSb.Append("[ Beep. ]");
 
       await ctx.RespondAsync(outputSb.ToString());
+    }
+
+
+    [Command("http")]
+    [Description("Sends an HTTP request to the specified URL and prints the result.")]
+    public async ValueTask HttpTest(CommandContext ctx,
+      [Description("The URL to which to send the request.")]
+      string url)
+    {
+      var urlInfo = new UrlInfo(url);
+
+      if (!urlInfo.IsValid)
+      {
+        await ctx.RespondAsync("[ Meep. ] Invalid URL. [ Zorp. ]");
+
+        return;
+      }
+
+      using var response = await m_HttpClient.GetAsync(urlInfo.Uri.ToString());
+      var statusCode = response.StatusCode;
     }
 
 

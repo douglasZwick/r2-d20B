@@ -19,6 +19,9 @@ namespace R2D20B
     {
       m_OriginalString = url;
 
+      // TODO:
+      //   Do a more robust job of detecting a scheme so I can preserve
+      //   more of them than just these two
       if (!(url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
         url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)))
         url = "https://" + url;

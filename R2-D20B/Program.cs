@@ -10,8 +10,9 @@ namespace R2D20B
     {
       var builder = Host.CreateApplicationBuilder(args);
 
-      builder.Services.AddSingleton<IUrlHandler, TwitterUrlHandler>();
-      builder.Services.AddHostedService<Bot>();
+      builder.Services.AddSingleton<IUrlHandler, TwitterUrlHandler>()
+        .AddHttpClient()
+        .AddHostedService<Bot>();
 
       var host = builder.Build();
       await host.RunAsync();

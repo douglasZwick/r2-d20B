@@ -17,21 +17,24 @@ namespace R2D20B
 {
   internal class Bot : IHostedService
   {
+    static public ulong m_BotTestingChannelId;
+    
     public CommandsExtension? m_CommandsExtension;
     public DiscordGuild? m_DebugGuild;
-    public ulong m_BotTestingChannelId;
     public readonly string m_BotTestingChannelName = "bot-testing";
     public readonly bool m_TestingChannelOnly = true;
 
     private readonly DiscordClient m_Client;
     private readonly IEnumerable<IUrlHandler> m_UrlHandlers;
+    private readonly HttpClient m_HttpClient;
     private string m_UrlMatchPattern = @"\b(?:(?:https?)://)?" +
       @"(?:www\.)?(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:/[^\s]*)?";
 
 
-    public Bot(IEnumerable<IUrlHandler> urlHandlers)
+    public Bot(IEnumerable<IUrlHandler> urlHandlers, HttpClient httpClient)
     {
       m_UrlHandlers = urlHandlers;
+      m_HttpClient = httpClient;
 
       var token = BotConfig.GetToken();
 
