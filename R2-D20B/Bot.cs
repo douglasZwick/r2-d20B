@@ -43,6 +43,7 @@ namespace R2D20B
         .ConfigureServices(services =>
         {
           services.AddSingleton(_ => this);
+          services.AddSingleton(_ => m_HttpClient);
         })
         .UseCommands((services, extension) =>
         {

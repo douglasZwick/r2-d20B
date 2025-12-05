@@ -12,6 +12,8 @@ namespace R2D20B.Commands
 {
   internal class BasicCommands
   {
+    static private readonly int s_HttpBodySnippetLength = 500;
+
     private readonly Bot m_Bot;
     private readonly HttpClient m_HttpClient;
 
@@ -31,7 +33,7 @@ namespace R2D20B.Commands
 
 
     [Command("ping")]
-    [TextAlias("pong", "beep")]
+    [TextAlias("pong", "pingay", "beep")]
     [Description("Used as a simple acknowledgement that I'm online.")]
     public async ValueTask Ping(CommandContext ctx)
     {
@@ -195,8 +197,24 @@ namespace R2D20B.Commands
         return;
       }
 
+      var replySb = new StringBuilder();
+
       using var response = await m_HttpClient.GetAsync(urlInfo.Uri.ToString());
-      var statusCode = response.StatusCode;
+      replySb.AppendLine($"Status Code: {response.StatusCode}");
+      replySb.AppendLine($"Request Uri: {response.RequestMessage?.RequestUri}");
+      replySb.AppendLine($"Headers:");
+      replySb.AppendLine($"    Server: {response.Headers.Server}");
+      replySb.AppendLine($"    Location: {response.Headers.Location}");
+      replySb.AppendLine($"    Date: {response.Headers.Date}");
+      replySb.AppendLine($"    Content.Headers.ContentType: {response.Content.Headers.ContentType}");
+
+      var snippet = await response.Content.ReadAsStringAsync();
+      var length = s_HttpBodySnippetLength;
+      if (snippet.Length > length) snippet = snippet[..length] + " ...";
+
+      replySb.AppendLine($"Body Snippet: {snippet}");
+
+      await ctx.RespondAsync(replySb.ToString());
     }
 
 
