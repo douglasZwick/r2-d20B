@@ -13,6 +13,7 @@ namespace R2D20B
     public string PathAndQuery => Uri.PathAndQuery!;
     public string Fragment => Uri.Fragment!;
     public bool IsValid { get => m_Uri is not null; }
+    public string Url => Uri.ToString();
 
 
     public UrlInfo(string url)
@@ -36,5 +37,8 @@ namespace R2D20B
     {
       return Scheme + "://" + newHost + PathAndQuery + Fragment;
     }
+
+
+    public override string ToString() => Url;
   }
 }

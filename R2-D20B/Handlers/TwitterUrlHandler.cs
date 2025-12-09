@@ -1,103 +1,152 @@
-using System.Reflection.Metadata;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using DSharpPlus.Entities;
 using DSharpPlus.EventArgs;
+using Formatter = DSharpPlus.Formatter;
 
 namespace R2D20B.Handlers
 {
   /// <summary>
   /// Handles Twitter URLs found inside messages.
   /// </summary>
-  internal class TwitterUrlHandler : IUrlHandler
+  internal class TwitterUrlHandler(HttpClient httpClient) : IUrlHandler
   {
     #region Data Transfer Type Definitions
-    internal class FixTweetResponseData
+    internal class FixTweetResponseData(int code, string message, ApiTweet tweet)
     {
-      public int Code { get; set; }
-      public string? Message { get; set; }
-      public TweetData? Tweet { get; set; }
+      public int Code { get; set; } = code;
+      public string Message { get; set; } = message;
+      public ApiTweet Tweet { get; set; } = tweet;
     }
 
 
-    internal class TweetData
+    internal class ApiTweet(string id, string url, string text, string createdAt,
+      ApiAuthor author, int likes, int retweets, int replies,
+      int? views = null, ApiMedia? media = null)
     {
-      public string? Id { get; set; }
-      public string? Url { get; set; }
-      public string? Text { get; set; }
-      public string? Created_At { get; set; }
-      public AuthorData? Author { get; set; }
-      public MediaData? Media { get; set; }
-      public int Likes { get; set; }
-      public int Retweets { get; set; }
-      public int Replies { get; set; }
-      public int? Views { get; set; }
+      public string Id { get; set; } = id;
+      public string Url { get; set; } = url;
+      public string Text { get; set; } = text;
+      [JsonPropertyName("created_at")]
+      public string CreatedAt { get; set; } = createdAt;
+      public ApiAuthor Author { get; set; } = author;
+      public ApiMedia? Media { get; set; } = media;
+      public int Likes { get; set; } = likes;
+      public int Retweets { get; set; } = retweets;
+      public int Replies { get; set; } = replies;
+      public int? Views { get; set; } = views;
     }
 
 
-    internal class AuthorData
+    internal class ApiAuthor(string name, string screenName, string avatarUrl)
     {
-      public string? Name { get; set; }
-      public string? Screen_Name { get; set; }
+      private static readonly string s_DefaultAvatarUrl =
+        "https://abs.twimg.com/sticky/default_profile_images/default_profile_normal.png";
+
+      public string Name { get; set; } = name;
+      [JsonPropertyName("screen_name")]
+      public string ScreenName { get; set; } = screenName;
+      [JsonPropertyName("avatar_url")]
+      public string AvatarUrl { get; set; } = avatarUrl ?? s_DefaultAvatarUrl;
     }
 
 
-    internal class MediaData
+    internal class ApiMedia(ApiPhotoData[]? photos = null, ApiVideoData[]? videos = null)
     {
-      public ApiPhotoData[]? Photos { get; set; }
-      public ApiVideoData[]? Videos { get; set; }
+      public ApiPhotoData[]? Photos { get; set; } = photos;
+      public ApiVideoData[]? Videos { get; set; } = videos;
     }
 
 
-    internal class ApiPhotoData
+    internal class ApiPhotoData(string url)
     {
-      public string? Url { get; set; }
+      public string Url { get; set; } = url;
     }
 
 
-    internal class ApiVideoData
+    internal class ApiVideoData(string url)
     {
-      public string? Url { get; set; }
+      public string Url { get; set; } = url;
     }
     #endregion
 
-    
-    /// <summary>
-    /// The host to swap in for single-video tweet links. Specified by FixTweet.
-    /// </summary>
-    private static readonly string s_ReplacementHost = "api.fxtwitter.com";
 
-    private readonly HttpClient m_HttpClient;
-    private readonly JsonSerializerOptions m_JsonOptions = new()
-      { PropertyNameCaseInsensitive = true, };
-
-
-    public TwitterUrlHandler(HttpClient httpClient)
+    internal class TweetContext(UrlInfo urlInfo, ApiTweet tweet,
+      ApiPhotoData[]? photos, ApiVideoData[]? videos)
     {
-      m_HttpClient = httpClient;
+      private static readonly string s_DateTimeFormat = "ddd MMM dd HH:mm:ss K yyyy";
+
+      public UrlInfo UrlInfo { get; set; } = urlInfo;
+      public ApiTweet Tweet { get; set; } = tweet;
+      public ApiPhotoData[] Photos { get; set; } = photos ?? [];
+      public ApiVideoData[] Videos { get; set; } = videos ?? [];
+
+      public int PhotoCount => Photos.Length;
+      public int VideoCount => Videos.Length;
+      public bool HasPhotos => PhotoCount > 0;
+      public bool HasVideos => VideoCount > 0;
+      public bool HasMedia => Tweet.Media is not null && (HasPhotos || HasVideos);
+      public bool IsSingleImageOnly => PhotoCount == 1 && !HasVideos;
+      public bool IsSingleVideoOnly => !HasPhotos && VideoCount == 1;
+
+      public DateTimeOffset? Timestamp
+      {
+        get
+        {
+          try
+          {
+            return DateTimeOffset.ParseExact(Tweet.CreatedAt, s_DateTimeFormat,
+              System.Globalization.CultureInfo.InvariantCulture);
+          }
+          catch (Exception e)
+          {
+            Console.Error.WriteLine($"Invalid timestamp in tweet from {UrlInfo.ToString()}. " +
+              $"Exception: {e.Message}");
+          }
+
+          return null;
+        }
+      }
     }
 
     
+    /// <summary>
+    /// The host to swap in for single-video tweet links.
+    /// </summary>
+    private static readonly string s_SingleVideoHost = "vxtwitter.com";
+    /// <summary>
+    /// The host to swap in for multi-media tweet links. Specified by FixTweet.
+    /// </summary>
+    private static readonly string s_MultiMediaHost = "api.fxtwitter.com";
+    // private static readonly string s_DateTimeFormat = "d-MMM-yy h:mm tt";
+
+    private readonly HttpClient m_HttpClient = httpClient;
+    private readonly JsonSerializerOptions m_JsonOptions = new()
+      { PropertyNameCaseInsensitive = true, };
+
     public async Task HandleAsync(List<UrlInfo> urlInfos, MessageCreatedEventArgs e)
     {
       // Filter down to just the URLs that this handler can handle
       var relevantUrlInfos = urlInfos.Where(CanHandle);
       if (!relevantUrlInfos.Any()) return;
 
-      // This StringBuilder will be passed around through the pipeline, where various methods
-      //   have a chance to append to it
-      var replySb = new StringBuilder();
-
       // Handle each URL
       foreach (var urlInfo in relevantUrlInfos)
-        HandleUrl(urlInfo, replySb);
+      {
+        var tweetContext = await TryGetTweetContextAsync(urlInfo);
+        if (tweetContext is null) continue;
 
-      // If the StringBuilder is empty, it means no URLs that came through here had anything
-      //   to add to it, which means there's nothing to say and we should just return
-      if (replySb.Length <= 0) return;
-      
-      // await e.Message.ModifyEmbedSuppressionAsync(true);
-      await e.Message.RespondAsync(replySb.ToString());
+        if (!tweetContext.HasMedia || tweetContext.IsSingleImageOnly) continue;
+
+        if (tweetContext.IsSingleVideoOnly)
+        {
+          await HandleSingleVideoAsync(tweetContext, e);
+          continue;
+        }
+        
+        await HandleMultiMediaAsync(tweetContext, e);
+      }
     }
 
 
@@ -142,77 +191,132 @@ namespace R2D20B.Handlers
       return urlInfo.Uri.AbsolutePath.Contains("/status/", StringComparison.OrdinalIgnoreCase);
     }
 
-    
-    /// <summary>
-    /// Handles media embedding for an individual tweet URL.
-    /// </summary>
-    /// <param name="urlInfo">The tweet's URL data.</param>
-    /// <param name="replySb">The StringBuilder that will be used for the reply.</param>
-    private async void HandleUrl(UrlInfo urlInfo, StringBuilder replySb)
+
+    private async Task<TweetContext?> TryGetTweetContextAsync(UrlInfo urlInfo)
     {
       // First we replace the host in the original URL with the FixTweet API URL
-      var fixTweetUrl = urlInfo.ReplaceHost(s_ReplacementHost);
+      var fixTweetUrl = urlInfo.ReplaceHost(s_MultiMediaHost);
       
       // Then we send an HTTP request to the new URL
       using var response = await m_HttpClient.GetAsync(fixTweetUrl);
 
       // Consider logging or falling back to dumbly using vxtwitter, etc.
-      if (!response.IsSuccessStatusCode) return;
+      if (!response.IsSuccessStatusCode) return null;
 
       var content = await response.Content.ReadAsStringAsync();
       var data = JsonSerializer.Deserialize<FixTweetResponseData>(content, m_JsonOptions);
 
       // Skip tweets that don't contain media
-      if (data?.Tweet?.Media is null) return;
+      if (data?.Tweet.Media is null) return null;
+
+      return new TweetContext
+      (
+        urlInfo:  urlInfo,
+        tweet:    data.Tweet,
+        photos:   data.Tweet.Media?.Photos,
+        videos:   data.Tweet.Media?.Videos
+      );
+    }
+
+
+    private static async Task HandleSingleVideoAsync(TweetContext tweetContext,
+      MessageCreatedEventArgs e)
+    {
+      var vxtwitterUrl = tweetContext.UrlInfo.ReplaceHost(s_SingleVideoHost);
+
+      try
+      {
+        await e.Message.RespondAsync(vxtwitterUrl);
+      }
+      catch // (Exception ex)
+      {
+        // Consider logging the exception
+        return;
+      }
+
+      try
+      {
+        await e.Message.ModifyEmbedSuppressionAsync(true);
+      }
+      catch // (Exception ex)
+      {
+        // Consider logging the exception
+        return;
+      }
+    }
+
+
+    private static async Task HandleMultiMediaAsync(TweetContext tweetContext,
+      MessageCreatedEventArgs e)
+    {
+      var v2Builder = new DiscordMessageBuilder().EnableV2Components();
+      var pseudoEmbed = CreateTweetPseudoEmbed(v2Builder, tweetContext);
+      v2Builder.AddContainerComponent(pseudoEmbed);
+
+      try
+      {
+        // await e.Channel.SendMessageAsync(videoBuilder);
+        await e.Channel.SendMessageAsync(v2Builder);
+      }
+      catch // (Exception ex)
+      {
+        // Consider logging the exception
+        return;
+      }
+
+      try
+      {
+        await e.Message.ModifyEmbedSuppressionAsync(true);
+      }
+      catch // (Exception ex)
+      {
+        // Consider logging the exception
+        return;
+      }
+    }
+
+    private static DiscordContainerComponent CreateTweetPseudoEmbed(
+      DiscordMessageBuilder builder, TweetContext tweetContext)
+    {
+      var tweet = tweetContext.Tweet;
+      var authorString = $"{tweet.Author.Name} (@{tweet.Author.ScreenName})";
+      authorString = Formatter.ToMediumHeader(authorString);
       
-      // Finally, handle any media present in this tweet
-      HandleMedia(data.Tweet.Media, replySb);
+      var containerContents = new List<DiscordComponent>();
+
+      var authorText = new DiscordTextDisplayComponent(authorString);
+      var mainText = new DiscordTextDisplayComponent(tweet.Text);
+      var authorThumbnail = new DiscordThumbnailComponent(tweet.Author.AvatarUrl);
+      containerContents.Add(new DiscordSectionComponent([authorText, mainText], authorThumbnail));
+      containerContents.Add(new DiscordSeparatorComponent());
+
+      containerContents.Add(CreateMediaGallery(tweetContext));
+      
+      if (tweetContext.Timestamp is DateTimeOffset timestamp)
+      {
+        // var timestampStr = timestamp.ToLocalTime().ToString(s_DateTimeFormat,
+        //   CultureInfo.InvariantCulture);
+        var timestampStr = Formatter.Timestamp(timestamp, DSharpPlus.TimestampFormat.ShortDateTime);
+        containerContents.Add(new DiscordTextDisplayComponent(timestampStr));
+      }
+
+      return new DiscordContainerComponent(containerContents);
     }
 
-
-    /// <summary>
-    /// Handles all media found in this tweet.
-    /// </summary>
-    /// <param name="media">The media to handle.</param>
-    /// <param name="replySb">The StringBuilder to which to append reply text.</param>
-    private static void HandleMedia(MediaData media, StringBuilder replySb)
+    private static DiscordMediaGalleryComponent CreateMediaGallery(TweetContext tweetContext)
     {
-      HandlePhotos(media, replySb);
-      HandleVideos(media, replySb);
-    }
+      var galleryItems = new List<DiscordMediaGalleryItem>();
 
+      foreach (var video in tweetContext.Videos)
+        galleryItems.Add(new(video.Url));
 
-    /// <summary>
-    /// Handles all still images found in this tweet.
-    /// </summary>
-    /// <param name="media">The media object containig the images to handle.</param>
-    /// <param name="replySb">The StringBuilder to which to append reply text.</param>
-    private static void HandlePhotos(MediaData media, StringBuilder replySb)
-    {
-      // Bail early if the tweet has no still images
-      if (media.Photos is null) return;
-      if (media.Photos.Length <= 0) return; // This probably can't happen after the above
+      if (!tweetContext.HasPhotos)
+        return new(galleryItems);
 
-      // Directly append the deep-link URL of the image to the reply
-      foreach (var imageDatum in media.Photos)
-        replySb.AppendLine(imageDatum.Url);
-    }
+      foreach (var photo in tweetContext.Photos)
+        galleryItems.Add(new(photo.Url));
 
-
-    /// <summary>
-    /// Handles all videos (including animated GIFs) found in this tweet.
-    /// </summary>
-    /// <param name="media">The media object containig the videos to handle.</param>
-    /// <param name="replySb">The StringBuilder to which to append reply text.</param>
-    private static void HandleVideos(MediaData media, StringBuilder replySb)
-    {
-      // Bail early if the tweet has no videos
-      if (media.Videos is null) return;
-      if (media.Videos.Length <= 0) return; // This probably can't happen after the above
-
-      // Directly append the deep-link URL of the video to the reply
-      foreach (var videoDatum in media.Videos)
-        replySb.AppendLine(videoDatum.Url);
+      return new(galleryItems);
     }
   }
 }

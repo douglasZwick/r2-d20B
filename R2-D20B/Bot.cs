@@ -101,24 +101,25 @@ namespace R2D20B
     private async Task OnGuildDownloadCompleted(DiscordClient client,
       GuildDownloadCompletedEventArgs e)
     {
-      DiscordGuild? guild;
+      await Task.Run(async () =>
+      {
+        if (!e.Guilds.TryGetValue(BotConfig.GetDebugGuildId(), out DiscordGuild? guild)) return;
 
-      if (!e.Guilds.TryGetValue(BotConfig.GetDebugGuildId(), out guild)) return;
+        m_DebugGuild = guild;
+        var botTestingChannel = guild.Channels.Values.Where(
+          c => c.Name == m_BotTestingChannelName).FirstOrDefault();
+        
+        if (botTestingChannel is null) return;
 
-      m_DebugGuild = guild;
-      var botTestingChannel = guild.Channels.Values.Where(
-        c => c.Name == m_BotTestingChannelName).FirstOrDefault();
-      
-      if (botTestingChannel is null) return;
-
-      m_BotTestingChannelId = botTestingChannel.Id;
+        m_BotTestingChannelId = botTestingChannel.Id;
+      });
     }
 
 
     private async Task OnMessageCreated(DiscordClient client,
       MessageCreatedEventArgs e)
     {
-      if (e.Author == client.CurrentUser) return;
+      if (e.Author.IsCurrent) return;
 
       await HandleUrls(client, e);
     }
