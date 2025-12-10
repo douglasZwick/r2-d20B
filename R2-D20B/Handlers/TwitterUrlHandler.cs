@@ -12,8 +12,24 @@ namespace R2D20B.Handlers
   /// </summary>
   internal class TwitterUrlHandler(HttpClient httpClient) : IUrlHandler
   {
+    /// <summary>
+    /// The host to swap in for single-video tweet links.
+    /// </summary>
+    private static readonly string s_SingleVideoHost = "vxtwitter.com";
+    /// <summary>
+    /// The host to swap in for multi-media tweet links. Specified by FixTweet.
+    /// </summary>
+    private static readonly string s_MultiMediaHost = "api.fxtwitter.com";
+    // private static readonly string s_DateTimeFormat = "d-MMM-yy h:mm tt";
+    private static readonly string s_FixTweetSignature = "FixTweet \u2715 R2-D20";
+
+    private readonly HttpClient m_HttpClient = httpClient;
+    private readonly JsonSerializerOptions m_JsonOptions = new()
+      { PropertyNameCaseInsensitive = true, };
+
+
     #region Data Transfer Type Definitions
-    internal class FixTweetResponseData(int code, string message, ApiTweet tweet)
+    private class FixTweetResponseData(int code, string message, ApiTweet tweet)
     {
       public int Code { get; set; } = code;
       public string Message { get; set; } = message;
@@ -21,7 +37,7 @@ namespace R2D20B.Handlers
     }
 
 
-    internal class ApiTweet(string id, string url, string text, string createdAt,
+    private class ApiTweet(string id, string url, string text, string createdAt,
       ApiAuthor author, int likes, int retweets, int replies,
       int? views = null, ApiMedia? media = null)
     {
@@ -39,7 +55,7 @@ namespace R2D20B.Handlers
     }
 
 
-    internal class ApiAuthor(string name, string screenName, string avatarUrl)
+    private class ApiAuthor(string name, string screenName, string avatarUrl)
     {
       private static readonly string s_DefaultAvatarUrl =
         "https://abs.twimg.com/sticky/default_profile_images/default_profile_normal.png";
@@ -52,27 +68,27 @@ namespace R2D20B.Handlers
     }
 
 
-    internal class ApiMedia(ApiPhotoData[]? photos = null, ApiVideoData[]? videos = null)
+    private class ApiMedia(ApiPhotoData[]? photos = null, ApiVideoData[]? videos = null)
     {
       public ApiPhotoData[]? Photos { get; set; } = photos;
       public ApiVideoData[]? Videos { get; set; } = videos;
     }
 
 
-    internal class ApiPhotoData(string url)
+    private class ApiPhotoData(string url)
     {
       public string Url { get; set; } = url;
     }
 
 
-    internal class ApiVideoData(string url)
+    private class ApiVideoData(string url)
     {
       public string Url { get; set; } = url;
     }
     #endregion
 
 
-    internal class TweetContext(UrlInfo urlInfo, ApiTweet tweet,
+    private class TweetContext(UrlInfo urlInfo, ApiTweet tweet,
       ApiPhotoData[]? photos, ApiVideoData[]? videos)
     {
       private static readonly string s_DateTimeFormat = "ddd MMM dd HH:mm:ss K yyyy";
@@ -111,20 +127,6 @@ namespace R2D20B.Handlers
     }
 
     
-    /// <summary>
-    /// The host to swap in for single-video tweet links.
-    /// </summary>
-    private static readonly string s_SingleVideoHost = "vxtwitter.com";
-    /// <summary>
-    /// The host to swap in for multi-media tweet links. Specified by FixTweet.
-    /// </summary>
-    private static readonly string s_MultiMediaHost = "api.fxtwitter.com";
-    // private static readonly string s_DateTimeFormat = "d-MMM-yy h:mm tt";
-
-    private readonly HttpClient m_HttpClient = httpClient;
-    private readonly JsonSerializerOptions m_JsonOptions = new()
-      { PropertyNameCaseInsensitive = true, };
-
     public async Task HandleAsync(List<UrlInfo> urlInfos, MessageCreatedEventArgs e)
     {
       // Filter down to just the URLs that this handler can handle
@@ -275,33 +277,42 @@ namespace R2D20B.Handlers
       }
     }
 
+
     private static DiscordContainerComponent CreateTweetPseudoEmbed(
       DiscordMessageBuilder builder, TweetContext tweetContext)
     {
       var tweet = tweetContext.Tweet;
-      var authorString = $"{tweet.Author.Name} (@{tweet.Author.ScreenName})";
-      authorString = Formatter.ToMediumHeader(authorString);
+      var authorString = $"### {tweet.Author.Name} (@{tweet.Author.ScreenName})";
+      var link = $"-# {tweet.Url}";
       
       var containerContents = new List<DiscordComponent>();
 
       var authorText = new DiscordTextDisplayComponent(authorString);
+      var linkText = new DiscordTextDisplayComponent(link);
       var mainText = new DiscordTextDisplayComponent(tweet.Text);
       var authorThumbnail = new DiscordThumbnailComponent(tweet.Author.AvatarUrl);
-      containerContents.Add(new DiscordSectionComponent([authorText, mainText], authorThumbnail));
+      containerContents.Add(new DiscordSectionComponent(
+        [authorText, linkText, mainText], authorThumbnail));
       containerContents.Add(new DiscordSeparatorComponent());
 
       containerContents.Add(CreateMediaGallery(tweetContext));
       
+      // " \u2022 "
+      var signature = $"-# {s_FixTweetSignature}";
+
       if (tweetContext.Timestamp is DateTimeOffset timestamp)
       {
         // var timestampStr = timestamp.ToLocalTime().ToString(s_DateTimeFormat,
         //   CultureInfo.InvariantCulture);
         var timestampStr = Formatter.Timestamp(timestamp, DSharpPlus.TimestampFormat.ShortDateTime);
-        containerContents.Add(new DiscordTextDisplayComponent(timestampStr));
+        signature = $"{signature} \u2022 {timestampStr}";
       }
+
+      containerContents.Add(new DiscordTextDisplayComponent(signature));
 
       return new DiscordContainerComponent(containerContents);
     }
+
 
     private static DiscordMediaGalleryComponent CreateMediaGallery(TweetContext tweetContext)
     {
