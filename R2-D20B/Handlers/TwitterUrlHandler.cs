@@ -1,9 +1,9 @@
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DSharpPlus.Entities;
 using DSharpPlus.EventArgs;
 using Formatter = DSharpPlus.Formatter;
+
 
 namespace R2D20B.Handlers
 {
@@ -20,8 +20,11 @@ namespace R2D20B.Handlers
     /// The host to swap in for multi-media tweet links. Specified by FixTweet.
     /// </summary>
     private static readonly string s_MultiMediaHost = "api.fxtwitter.com";
-    // private static readonly string s_DateTimeFormat = "d-MMM-yy h:mm tt";
-    private static readonly string s_FixTweetSignature = "FixTweet \u2715 R2-D20";
+    /// <summary>
+    /// Signature to display in the footer for galleries, just before the timestamp.
+    /// \u00d7 is the BMP code point for the multiplication sign, ×
+    /// </summary>
+    private static readonly string s_FixTweetSignature = "FixTweet \u00d7 R2-D20";
 
     private readonly HttpClient m_HttpClient = httpClient;
     private readonly JsonSerializerOptions m_JsonOptions = new()
@@ -135,20 +138,7 @@ namespace R2D20B.Handlers
 
       // Handle each URL
       foreach (var urlInfo in relevantUrlInfos)
-      {
-        var tweetContext = await TryGetTweetContextAsync(urlInfo);
-        if (tweetContext is null) continue;
-
-        if (!tweetContext.HasMedia || tweetContext.IsSingleImageOnly) continue;
-
-        if (tweetContext.IsSingleVideoOnly)
-        {
-          await HandleSingleVideoAsync(tweetContext, e);
-          continue;
-        }
-        
-        await HandleMultiMediaAsync(tweetContext, e);
-      }
+        await HandleUrl(urlInfo, e);
     }
 
 
@@ -194,6 +184,39 @@ namespace R2D20B.Handlers
     }
 
 
+    /// <summary>
+    /// Handles the given URL based on its media content. See internal comments for details.
+    /// </summary>
+    /// <param name="urlInfo">The URL to handle.</param>
+    /// <param name="e">The event data from the original message.</param>
+    private async Task HandleUrl(UrlInfo urlInfo, MessageCreatedEventArgs e)
+    {
+      // First we get the data representing what the tweet looks like. Bail on fail (rare).
+      var tweetContext = await TryGetTweetContextAsync(urlInfo);
+      if (tweetContext is null) return;
+
+      // If the tweet contains no media at all, or exactly one image and no videos, then we ignore
+      //   it: Discord's default embedding works just fine in these cases.
+      if (!tweetContext.HasMedia || tweetContext.IsSingleImageOnly) return;
+
+      // Otherwise, if it contains exactly one video, handle it accordingly, then return.
+      if (tweetContext.IsSingleVideoOnly)
+      {
+        await HandleSingleVideoAsync(tweetContext, e);
+        return;
+      }
+      
+      // Finally, if we got this far without leaving yet, then this is a tweet with more than one
+      //   image and/or video. Handle it accordingly.
+      await HandleMultiMediaAsync(tweetContext, e);
+    }
+
+    
+    /// <summary>
+    /// Uses the FixTweet API to construct an object with all the information we need to know what
+    /// to do with the given Twitter URL.
+    /// </summary>
+    /// <param name="urlInfo">The URL to handle.</param>
     private async Task<TweetContext?> TryGetTweetContextAsync(UrlInfo urlInfo)
     {
       // First we replace the host in the original URL with the FixTweet API URL
@@ -211,6 +234,8 @@ namespace R2D20B.Handlers
       // Skip tweets that don't contain media
       if (data?.Tweet.Media is null) return null;
 
+      // If we've made it this far, this is a tweet with media, so we build and return the
+      //   context object for it.
       return new TweetContext
       (
         urlInfo:  urlInfo,
@@ -221,11 +246,18 @@ namespace R2D20B.Handlers
     }
 
 
+    /// <summary>
+    /// Handles embedding for tweets that contain exactly one video and no still images.
+    /// </summary>
+    /// <param name="tweetContext">The tweet to handle.</param>
+    /// <param name="e">The event data from the original message.</param>
     private static async Task HandleSingleVideoAsync(TweetContext tweetContext,
       MessageCreatedEventArgs e)
     {
+      // Swap the host for the one that we use for tweets like this
       var vxtwitterUrl = tweetContext.UrlInfo.ReplaceHost(s_SingleVideoHost);
 
+      // Reply with it
       try
       {
         await e.Message.RespondAsync(vxtwitterUrl);
@@ -235,7 +267,8 @@ namespace R2D20B.Handlers
         // Consider logging the exception
         return;
       }
-
+      
+      // After we're sure the reply was sent without issue, hide OP's embed
       try
       {
         await e.Message.ModifyEmbedSuppressionAsync(true);
@@ -248,13 +281,25 @@ namespace R2D20B.Handlers
     }
 
 
+    /// <summary>
+    /// Handles embedding for tweets that contain two or more images and/or videos. Uses Discord 
+    /// V2 Components.
+    /// </summary>
+    /// <param name="tweetContext">The tweet to handle.</param>
+    /// <param name="e">The event data from the original message.</param>
     private static async Task HandleMultiMediaAsync(TweetContext tweetContext,
       MessageCreatedEventArgs e)
     {
+      // We need to create a multi-item media gallery to handle this correctly, which means we need
+      //   to use V2 Components. This locks us out of a bunch of functionality, but we don't need
+      //   that stuff in here.
       var v2Builder = new DiscordMessageBuilder().EnableV2Components();
-      var pseudoEmbed = CreateTweetPseudoEmbed(v2Builder, tweetContext);
+      // Construct the "pseudo-embed" with its text and media gallery, etc.,
+      //   then add it to the builder
+      var pseudoEmbed = CreateTweetPseudoEmbed(tweetContext);
       v2Builder.AddContainerComponent(pseudoEmbed);
 
+      // Reply with it
       try
       {
         // await e.Channel.SendMessageAsync(videoBuilder);
@@ -266,6 +311,7 @@ namespace R2D20B.Handlers
         return;
       }
 
+      // After we're sure the reply was sent without issue, hide OP's embed
       try
       {
         await e.Message.ModifyEmbedSuppressionAsync(true);
@@ -278,55 +324,100 @@ namespace R2D20B.Handlers
     }
 
 
-    private static DiscordContainerComponent CreateTweetPseudoEmbed(
-      DiscordMessageBuilder builder, TweetContext tweetContext)
+    /// <summary>
+    /// Creates a container component for the tweet that resembles a classic DiscordEmbed.
+    /// </summary>
+    /// <param name="tweetContext">The tweet to handle.</param>
+    /// <returns>The pseudo-embed container.</returns>
+    private static DiscordContainerComponent CreateTweetPseudoEmbed(TweetContext tweetContext)
     {
+      //  Here's the structure of the pseudo-embed:
+      //  - Container component (round rectangle with a colored background. Can
+      //    contain any number of other components, but NOT other containers.)
+      //    - Section component (can contain 1-3 text displays, and MUST contain a thumbnail.)
+      //      - Text display component (for the author text, acting as the pseudo-embed's title)
+      //      - Text display component (for the link text. We let Discord's auto parsing handle it.)
+      //      - Text display component (for the main tweet text content)
+      //      - Thumbnail component (for the tweet author's avatar)
+      //    - Separator component (adds a little space between the text and the gallery)
+      //    - Media gallery component (dynamic rectangular grid for images / videos)
+      //    - Text display component (for the signature and timestamp)
+
       var tweet = tweetContext.Tweet;
+
+      // E.g. "### Dougward Zwick (@douglaszwick)"
       var authorString = $"### {tweet.Author.Name} (@{tweet.Author.ScreenName})";
+      // Uses the "small text" header to shrink the URL. Lets Discord's automatic link parsing turn
+      //   this into a clickable link.
       var link = $"-# {tweet.Url}";
       
+      // We need an IEnumerable<DiscordComponent> to pass into the section component's ctor.
+      //   A section can contain up to three text displays, and MUST (for some reason) contain
+      //   a thumbnail component.
       var containerContents = new List<DiscordComponent>();
 
+      // The author text serves as the title of the pseudo-embed
       var authorText = new DiscordTextDisplayComponent(authorString);
+      // The link is small, below the author text
       var linkText = new DiscordTextDisplayComponent(link);
+
+      // The main text content from the tweet
       var mainText = new DiscordTextDisplayComponent(tweet.Text);
+      // The author's Twitter avatar
       var authorThumbnail = new DiscordThumbnailComponent(tweet.Author.AvatarUrl);
+      // Creates the title section. Must take a list of contained components at construction time
       containerContents.Add(new DiscordSectionComponent(
         [authorText, linkText, mainText], authorThumbnail));
+
+      // A small separator before the gallery
       containerContents.Add(new DiscordSeparatorComponent());
 
+      // Creates the gallery. By the time we get it here, it contains all the images / videos.
       containerContents.Add(CreateMediaGallery(tweetContext));
       
-      // " \u2022 "
+      // Uses small text again to shrink the signature
       var signature = $"-# {s_FixTweetSignature}";
-
+      // Not sure what could cause the timestamp to be null, but we wrap it anyway
       if (tweetContext.Timestamp is DateTimeOffset timestamp)
       {
-        // var timestampStr = timestamp.ToLocalTime().ToString(s_DateTimeFormat,
-        //   CultureInfo.InvariantCulture);
+        // \u2022 is the BMP code point for a bullet, •
         var timestampStr = Formatter.Timestamp(timestamp, DSharpPlus.TimestampFormat.ShortDateTime);
         signature = $"{signature} \u2022 {timestampStr}";
       }
 
+      // Adds the signature text display that we just made
       containerContents.Add(new DiscordTextDisplayComponent(signature));
 
+      // Finally, creates and returns the container component
       return new DiscordContainerComponent(containerContents);
     }
 
 
+    /// <summary>
+    /// Creates a media gallery containing the tweet's images / videos.
+    /// </summary>
+    /// <param name="tweetContext">The tweet to handle.</param>
+    /// <returns>The newly minted media gallery in all its glory.</returns>
     private static DiscordMediaGalleryComponent CreateMediaGallery(TweetContext tweetContext)
     {
+      // The gallery's ctor requires an IEnumerable of the items up front
       var galleryItems = new List<DiscordMediaGalleryItem>();
-
+      // Gallery item has a ctor that takes an "unfurled media object", but we can just use
+      //   the one that takes a media URL, which is what we already have
+      
+      // We start with videos.
+      // TODO:
+      //   Someday it may be possible to ascertain the order of the media in a tweet. If that
+      //   happens, consider coming back here so we can order the images and videos correctly
       foreach (var video in tweetContext.Videos)
         galleryItems.Add(new(video.Url));
-
-      if (!tweetContext.HasPhotos)
-        return new(galleryItems);
-
+      // Then we do the photos. Note that it really kinda irks me that the FixTweet API calls
+      //   them "photos", when we know that they're images but we don't know that they're actually
+      //   photographs
       foreach (var photo in tweetContext.Photos)
         galleryItems.Add(new(photo.Url));
 
+      // Finally, we construct and return the new media gallery
       return new(galleryItems);
     }
   }
