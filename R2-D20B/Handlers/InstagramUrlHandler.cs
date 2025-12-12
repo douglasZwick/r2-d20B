@@ -6,9 +6,20 @@ namespace R2D20B.Handlers
   /// <summary>
   /// Handles Instagram URLs found inside messages.
   /// </summary>
-  internal class InstagramUrlHandler : IUrlHandler
+  internal class InstagramUrlHandler : UrlSwapHandler
   {
-    public async Task HandleAsync(List<UrlInfo> urlInfos, MessageCreatedEventArgs e)
+    /// <summary>
+    /// The hosts to look for and swap out.
+    /// </summary>
+    override protected string[] TargetHosts { get; } = [ "instagram.com" ];
+    
+    /// <summary>
+    /// The host to swap in.
+    /// </summary>
+    private static readonly string s_ReplacementHost = "kkinstagram.com";
+
+
+    override public async Task HandleAsync(List<UrlInfo> urlInfos, MessageCreatedEventArgs e)
     {
       // Filter down to just the URLs that this handler can handle
       var relevantUrlInfos = urlInfos.Where(CanHandle);
@@ -18,28 +29,31 @@ namespace R2D20B.Handlers
       var replySb = new StringBuilder();
 
       foreach (var urlInfo in relevantUrlInfos)
-        replySb.AppendLine(urlInfo.ReplaceHost("kkinstagram.com"));
+        replySb.AppendLine(urlInfo.ReplaceHost(s_ReplacementHost));
 
       if (replySb.Length <= 0) return;
 
-      await e.Message.RespondAsync(replySb.ToString());
-    }
-
-
-    public bool CanHandle(UrlInfo urlInfo)
-    {
-      // Reject URLs that have already been handled
-      if (urlInfo.Host.Equals("kkinstagram.com", StringComparison.OrdinalIgnoreCase) ||
-        urlInfo.Host.EndsWith(".kkinstagram.com", StringComparison.OrdinalIgnoreCase)) 
-        return false;
-
-      // Reject non-Insta URLs
-      if (!(urlInfo.Host.Equals("instagram.com", StringComparison.OrdinalIgnoreCase) ||
-        urlInfo.Host.EndsWith(".instagram.com", StringComparison.OrdinalIgnoreCase)))
-        return false;
+      // Reply with the StringBuilder
+      try
+      {
+        await e.Message.RespondAsync(replySb.ToString());
+      }
+      catch // (Exception ex)
+      {
+        // Consider logging the exception
+        return;
+      }
       
-      // If you've made it this far, you're good 👍
-      return true;
+      // After we're sure the reply was sent without issue, hide OP's embed
+      try
+      {
+        await e.Message.ModifyEmbedSuppressionAsync(true);
+      }
+      catch // (Exception ex)
+      {
+        // Consider logging the exception
+        return;
+      }
     }
   }
 }

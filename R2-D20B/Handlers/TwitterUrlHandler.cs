@@ -10,8 +10,13 @@ namespace R2D20B.Handlers
   /// <summary>
   /// Handles Twitter URLs found inside messages.
   /// </summary>
-  internal class TwitterUrlHandler(HttpClient httpClient) : IUrlHandler
+  internal class TwitterUrlHandler(HttpClient httpClient) : UrlSwapHandler
   {
+    /// <summary>
+    /// The hosts to look for and swap out.
+    /// </summary>
+    override protected string[] TargetHosts { get; } = [ "x.com", "twitter.com" ];
+
     /// <summary>
     /// The host to swap in for single-video tweet links.
     /// </summary>
@@ -130,7 +135,7 @@ namespace R2D20B.Handlers
     }
 
     
-    public async Task HandleAsync(List<UrlInfo> urlInfos, MessageCreatedEventArgs e)
+    override public async Task HandleAsync(List<UrlInfo> urlInfos, MessageCreatedEventArgs e)
     {
       // Filter down to just the URLs that this handler can handle
       var relevantUrlInfos = urlInfos.Where(CanHandle);
@@ -142,23 +147,10 @@ namespace R2D20B.Handlers
     }
 
 
-    public bool CanHandle(UrlInfo urlInfo)
+    override public bool CanHandle(UrlInfo urlInfo)
     {
       // Don't take URLs that aren't tweets
-      if (!IsTweet(urlInfo)) return false;
-
-      // Don't take URLs that are already using vxtwitter.
-      // Technically it's possible that the user might post a link to a tweet that contains
-      //   multple images, etc., that might benefit from going through the full pipeline, but
-      //   the chances that someone will go out of their way to manually replace the URL
-      //   for a link that would be better served without the replacement are slim enough
-      //   that that case isn't worth considering.
-      if (urlInfo.Host.Equals("vxtwitter.com", StringComparison.OrdinalIgnoreCase) ||
-        urlInfo.Host.EndsWith(".vxtwitter.com", StringComparison.OrdinalIgnoreCase)) 
-        return false;
-
-      // If you've made it this far, you're good 👍
-      return true;
+      return base.CanHandle(urlInfo) && IsTweet(urlInfo);
     }
 
 
@@ -167,17 +159,13 @@ namespace R2D20B.Handlers
     /// </summary>
     /// <param name="urlInfo">The URL data being considered.</param>
     /// <returns>True if it's a tweet, false if not.</returns>
-    private static bool IsTweet(UrlInfo urlInfo)
+    private bool IsTweet(UrlInfo urlInfo)
     {
       // Don't take URLs that aren't for Twitter. The use of both Equals and EndsWith is to
       //   catch links like "https://twitter.com/..." and those with subdomains. The dot in
       //   front of the string passed into EndsWith is to prevent something like
       //   "notactuallytwitter.com" from matching.
-      if (!(urlInfo.Host.Equals("twitter.com", StringComparison.OrdinalIgnoreCase) ||
-        urlInfo.Host.EndsWith(".twitter.com", StringComparison.OrdinalIgnoreCase) ||
-        urlInfo.Host.Equals("x.com", StringComparison.OrdinalIgnoreCase) ||
-        urlInfo.Host.EndsWith(".x.com", StringComparison.OrdinalIgnoreCase)))
-        return false;
+      if (!HasTargetHost(urlInfo)) return false;
       
       // All tweets have this string in their path
       return urlInfo.Uri.AbsolutePath.Contains("/status/", StringComparison.OrdinalIgnoreCase);
