@@ -20,20 +20,25 @@ namespace R2D20B.Handlers
     /// <summary>
     /// The host to swap in for single-video tweet links.
     /// </summary>
-    private static readonly string s_SingleVideoHost = "vxtwitter.com";
+    private static readonly string s_SingleMediaHost = "vxtwitter.com";
     /// <summary>
     /// The host to swap in for multi-media tweet links. Specified by FixTweet.
     /// </summary>
-    private static readonly string s_MultiMediaHost = "api.fxtwitter.com";
+    private static readonly string s_MultipleMediaHost = "api.fxtwitter.com";
     /// <summary>
     /// Signature to display in the footer for galleries, just before the timestamp.
     /// \u00d7 is the BMP code point for the multiplication sign, ×
     /// </summary>
     private static readonly string s_FixTweetSignature = "FixTweet \u00d7 R2-D20";
+    private static readonly int s_QuoteDepthLimit = 1;
 
     private readonly HttpClient m_HttpClient = httpClient;
     private readonly JsonSerializerOptions m_JsonOptions = new()
       { PropertyNameCaseInsensitive = true, };
+    private int m_QuoteDepth = 0;
+    private bool QuoteDepthExceeded => m_QuoteDepth > s_QuoteDepthLimit;
+    private void QuoteReset() { m_QuoteDepth = 0; }
+    private void QuoteIncrement() { ++m_QuoteDepth; }
 
 
     #region Data Transfer Type Definitions
@@ -46,27 +51,32 @@ namespace R2D20B.Handlers
 
 
     private class ApiTweet(string id, string url, string text, string createdAt,
-      ApiAuthor author, int likes, int retweets, int replies,
-      int? views = null, ApiMedia? media = null)
+      string? replyingTo, string? replyingToStatus, ApiAuthor author, int likes, int retweets,
+      int replies, int? views = null, ApiMedia? media = null, ApiTweet? quote = null)
     {
       public string Id { get; set; } = id;
       public string Url { get; set; } = url;
       public string Text { get; set; } = text;
       [JsonPropertyName("created_at")]
       public string CreatedAt { get; set; } = createdAt;
+      [JsonPropertyName("replying_to")]
+      public string? ReplyingTo { get; set; } = replyingTo;
+      [JsonPropertyName("replying_to_status")]
+      public string? ReplyingToStatus { get; set; } = replyingToStatus;
       public ApiAuthor Author { get; set; } = author;
       public ApiMedia? Media { get; set; } = media;
       public int Likes { get; set; } = likes;
       public int Retweets { get; set; } = retweets;
       public int Replies { get; set; } = replies;
       public int? Views { get; set; } = views;
+      public ApiTweet? Quote { get; set; } = quote;
     }
 
 
     private class ApiAuthor(string name, string screenName, string avatarUrl)
     {
       private static readonly string s_DefaultAvatarUrl =
-        "https://abs.twimg.com/sticky/default_profile_images/default_profile_normal.png";
+        "https://abs.twimg.com/sticky/default_profile_images/default_profile_400x400.png";
 
       public string Name { get; set; } = name;
       [JsonPropertyName("screen_name")]
@@ -113,6 +123,7 @@ namespace R2D20B.Handlers
       public bool HasMedia => Tweet.Media is not null && (HasPhotos || HasVideos);
       public bool IsSingleImageOnly => PhotoCount == 1 && !HasVideos;
       public bool IsSingleVideoOnly => !HasPhotos && VideoCount == 1;
+      public bool HasMultipleMedia => PhotoCount + VideoCount > 1;
 
       public DateTimeOffset? Timestamp
       {
@@ -143,7 +154,11 @@ namespace R2D20B.Handlers
 
       // Handle each URL
       foreach (var urlInfo in relevantUrlInfos)
+      {
+        QuoteReset();
+
         await HandleUrl(urlInfo, e);
+      }
     }
 
 
@@ -183,20 +198,36 @@ namespace R2D20B.Handlers
       var tweetContext = await TryGetTweetContextAsync(urlInfo);
       if (tweetContext is null) return;
 
-      // If the tweet contains no media at all, or exactly one image and no videos, then we ignore
-      //   it: Discord's default embedding works just fine in these cases.
-      if (!tweetContext.HasMedia || tweetContext.IsSingleImageOnly) return;
+      // At this point, we can't so easily return early because we have to check for a parent tweet
+      //   regardless of whether this one contains any media to embed
 
-      // Otherwise, if it contains exactly one video, handle it accordingly, then return.
-      if (tweetContext.IsSingleVideoOnly)
+      var quoting = m_QuoteDepth > 0;
+      // Single-media embedding is done via URL swapping
+      if (tweetContext.IsSingleVideoOnly || tweetContext.IsSingleImageOnly && quoting)
+        await HandleSingleMediaAsync(tweetContext, e, quoting);
+      // Multiple-media embedding is done via a media gallery component
+      else if (tweetContext.HasMultipleMedia)
+        await HandleMultipleMediaAsync(tweetContext, e, quoting);
+
+      // Next, we assume there's a quote and go ahead with incrementing the depth, and then bail
+      //   if this would put us too deep. This is so we can avoid having to needlessly compute
+      //   ParentUrl (a tiny tiny tiny optimization) in cases where we'd be too deep anyway
+      QuoteIncrement();
+      if (QuoteDepthExceeded) return;
+
+      // If there is a quoted tweet to worry about...
+      if (tweetContext.Tweet.Quote is ApiTweet quote)
       {
-        await HandleSingleVideoAsync(tweetContext, e);
-        return;
+        var quoteUrlInfo = new UrlInfo(quote.Url);
+        
+        // Return early if either the UrlInfo is invalid or if this handler can't handle it.
+        //   (I don't actually think either of these situations can occur.)
+        if (!quoteUrlInfo.IsValid) return;
+        if (!CanHandle(quoteUrlInfo)) return;
+
+        // If everything looks good, recurse
+        await HandleUrl(quoteUrlInfo, e);
       }
-      
-      // Finally, if we got this far without leaving yet, then this is a tweet with more than one
-      //   image and/or video. Handle it accordingly.
-      await HandleMultiMediaAsync(tweetContext, e);
     }
 
     
@@ -208,7 +239,7 @@ namespace R2D20B.Handlers
     private async Task<TweetContext?> TryGetTweetContextAsync(UrlInfo urlInfo)
     {
       // First we replace the host in the original URL with the FixTweet API URL
-      var fixTweetUrl = urlInfo.ReplaceHost(s_MultiMediaHost);
+      var fixTweetUrl = urlInfo.ReplaceHost(s_MultipleMediaHost);
       
       // Then we send an HTTP request to the new URL
       using var response = await m_HttpClient.GetAsync(fixTweetUrl);
@@ -219,8 +250,8 @@ namespace R2D20B.Handlers
       var content = await response.Content.ReadAsStringAsync();
       var data = JsonSerializer.Deserialize<FixTweetResponseData>(content, m_JsonOptions);
 
-      // Skip tweets that don't contain media
-      if (data?.Tweet.Media is null) return null;
+      // Skip tweets that don't contain media and are not quoting another tweet
+      if (data?.Tweet.Media is null && data?.Tweet.Quote is null) return null;
 
       // If we've made it this far, this is a tweet with media, so we build and return the
       //   context object for it.
@@ -235,20 +266,23 @@ namespace R2D20B.Handlers
 
 
     /// <summary>
-    /// Handles embedding for tweets that contain exactly one video and no still images.
+    /// Handles embedding for tweets that contain exactly one video or image. Not called for
+    /// single-image tweets except if it's a quoted tweet.
     /// </summary>
     /// <param name="tweetContext">The tweet to handle.</param>
     /// <param name="e">The event data from the original message.</param>
-    private static async Task HandleSingleVideoAsync(TweetContext tweetContext,
-      MessageCreatedEventArgs e)
+    private static async Task HandleSingleMediaAsync(TweetContext tweetContext,
+      MessageCreatedEventArgs e, bool quoting = false)
     {
       // Swap the host for the one that we use for tweets like this
-      var vxtwitterUrl = tweetContext.UrlInfo.ReplaceHost(s_SingleVideoHost);
+      var message = tweetContext.UrlInfo.ReplaceHost(s_SingleMediaHost);
+      if (quoting)
+        message = $"{Formatter.Bold("Quoting:")} {message}";
 
       // Reply with it
       try
       {
-        await e.Message.RespondAsync(vxtwitterUrl);
+        await e.Message.RespondAsync(message);
       }
       catch // (Exception ex)
       {
@@ -256,15 +290,18 @@ namespace R2D20B.Handlers
         return;
       }
       
-      // After we're sure the reply was sent without issue, hide OP's embed
-      try
+      if (!quoting)
       {
-        await e.Message.ModifyEmbedSuppressionAsync(true);
-      }
-      catch // (Exception ex)
-      {
-        // Consider logging the exception
-        return;
+        // After we're sure the reply was sent without issue, hide OP's embed
+        try
+        {
+          await e.Message.ModifyEmbedSuppressionAsync(true);
+        }
+        catch // (Exception ex)
+        {
+          // Consider logging the exception
+          return;
+        }
       }
     }
 
@@ -275,13 +312,15 @@ namespace R2D20B.Handlers
     /// </summary>
     /// <param name="tweetContext">The tweet to handle.</param>
     /// <param name="e">The event data from the original message.</param>
-    private static async Task HandleMultiMediaAsync(TweetContext tweetContext,
-      MessageCreatedEventArgs e)
+    private static async Task HandleMultipleMediaAsync(TweetContext tweetContext,
+      MessageCreatedEventArgs e, bool quoting = false)
     {
       // We need to create a multi-item media gallery to handle this correctly, which means we need
       //   to use V2 Components. This locks us out of a bunch of functionality, but we don't need
       //   that stuff in here.
       var v2Builder = new DiscordMessageBuilder().EnableV2Components();
+      if (quoting)
+        v2Builder.AddTextDisplayComponent(Formatter.Bold("Quoting:"));
       // Construct the "pseudo-embed" with its text and media gallery, etc.,
       //   then add it to the builder
       var pseudoEmbed = CreateTweetPseudoEmbed(tweetContext);
@@ -291,7 +330,7 @@ namespace R2D20B.Handlers
       try
       {
         // await e.Channel.SendMessageAsync(videoBuilder);
-        await e.Channel.SendMessageAsync(v2Builder);
+        await e.Message.RespondAsync(v2Builder);
       }
       catch // (Exception ex)
       {
@@ -299,15 +338,18 @@ namespace R2D20B.Handlers
         return;
       }
 
-      // After we're sure the reply was sent without issue, hide OP's embed
-      try
+      if (!quoting)
       {
-        await e.Message.ModifyEmbedSuppressionAsync(true);
-      }
-      catch // (Exception ex)
-      {
-        // Consider logging the exception
-        return;
+        // After we're sure the reply was sent without issue, hide OP's embed
+        try
+        {
+          await e.Message.ModifyEmbedSuppressionAsync(true);
+        }
+        catch // (Exception ex)
+        {
+          // Consider logging the exception
+          return;
+        }
       }
     }
 
