@@ -11,11 +11,14 @@ using Microsoft.Extensions.Logging;
 
 namespace R2D20B.Commands
 {
-  internal class BasicCommands(Bot bot, HttpClient httpClient, ILogger<BasicCommands> logger)
+  internal class BasicCommands(
+    CommandRegistry registry,
+    HttpClient httpClient,
+    ILogger<BasicCommands> logger)
   {
     static private readonly int s_HttpBodySnippetLength = 500;
 
-    private Bot Bot { get; init; } = bot;
+    private CommandRegistry Registry { get; init; } = registry;
     private HttpClient HttpClient { get; init; } = httpClient;
     private ILogger<BasicCommands> Logger { get; init; } = logger;
 
@@ -219,7 +222,7 @@ namespace R2D20B.Commands
     {
       if (ctx is null) return;
 
-      var commands = Bot.Commands!.Commands.Values;
+      var commands = Registry.Commands.Commands.Values;
       var count = commands.Count();
 
       var embedBuilder = new DiscordEmbedBuilder()

@@ -1,5 +1,9 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using DSharpPlus;
+using DSharpPlus.Commands;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using R2D20B.Commands;
 using R2D20B.Handlers;
 
 namespace R2D20B
@@ -19,12 +23,50 @@ namespace R2D20B
         return httpClient;
       });
       
+      builder.Services.AddHostedService<Bot>();
+
+      builder.Services.AddSingleton<GatewayEventHandlers>();
+      builder.Services.AddSingleton<UrlHandlingDispatcher>();
       builder.Services.AddSingleton<IUrlHandler, TwitterUrlHandler>();
       builder.Services.AddSingleton<IUrlHandler, InstagramUrlHandler>();
-      builder.Services.AddHostedService<Bot>();
+      builder.Services.AddSingleton<CommandRegistry>();
+
+      builder.Services.AddSingleton(sp =>
+        CreateDiscordClient(sp, sp.GetRequiredService<HttpClient>()));
       
       var host = builder.Build();
       await host.RunAsync();
+    }
+
+
+    internal static DiscordClient CreateDiscordClient(
+      IServiceProvider services,
+      HttpClient httpClient)
+    {
+      var token = BotConfig.GetToken();
+
+      return DiscordClientBuilder
+        .CreateDefault(token, DiscordIntents.All)
+        .ConfigureServices(s =>
+        {
+          s.AddSingleton(httpClient);
+          s.AddSingleton(_ => services.GetRequiredService<CommandRegistry>());
+          s.AddSingleton(_ => services.GetRequiredService<ILoggerFactory>());
+        })
+        .UseCommands((s, extension) =>
+        {
+          services.GetRequiredService<CommandRegistry>().Initialize(extension);
+          extension.AddCommands(typeof(BasicCommands).Assembly);
+        })
+        .ConfigureEventHandlers(eventHandlingBuilder =>
+        {
+          var handlers = services.GetRequiredService<GatewayEventHandlers>();
+
+          eventHandlingBuilder
+          .HandleMessageCreated(handlers.OnMessageCreated)
+          .HandleGuildDownloadCompleted(handlers.OnGuildDownloadCompleted);
+        })
+        .Build();
     }
   }
 }
