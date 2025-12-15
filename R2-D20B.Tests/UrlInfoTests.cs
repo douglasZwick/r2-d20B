@@ -9,4 +9,14 @@ public class UrlInfoTests
 
     Assert.True(info.IsValid);
   }
+
+
+  [Fact(Skip = "TODO: Trailing punctuation not yet handled")]
+  public void UrlInfo_Handles_Trailing_Punctuation()
+  {
+    var info = new UrlInfo("https://example.com,");
+
+    Assert.Equal("https://example.com", info.m_NormalizedString);
+    Assert.True(info.IsValid);
+  }
 }
