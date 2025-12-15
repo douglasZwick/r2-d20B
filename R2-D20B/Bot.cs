@@ -8,46 +8,53 @@ using DSharpPlus.Commands.Processors.TextCommands;
 using Microsoft.Extensions.DependencyInjection;
 using DSharpPlus.EventArgs;
 using System.Text.RegularExpressions;
-using System.Text;
 using Microsoft.Extensions.Hosting;
 using R2D20B.Handlers;
+using Microsoft.Extensions.Logging;
+using R2D20B.Components;
 
 
 namespace R2D20B
 {
   internal class Bot : IHostedService
   {
-    static public ulong m_BotTestingChannelId;
-    
-    public CommandsExtension? m_CommandsExtension;
-    public DiscordGuild? m_DebugGuild;
-    public readonly string m_BotTestingChannelName = "bot-testing";
-    public readonly bool m_TestingChannelOnly = true;
-
-    private readonly DiscordClient m_Client;
-    private readonly IEnumerable<IUrlHandler> m_UrlHandlers;
-    private readonly HttpClient m_HttpClient;
-    private string m_UrlMatchPattern = @"\b(?:(?:https?)://)?" +
+    static public ulong BotTestingChannelId { get; private set; }
+    private static readonly string s_BotTestingChannelName = "bot-testing";
+    private static readonly string s_UrlMatchPattern = @"\b(?:(?:https?)://)?" +
       @"(?:www\.)?(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:/[^\s]*)?";
+    // private readonly bool m_TestingChannelOnly = true;
+    
+    public CommandsExtension? Commands { get; private set; }
+    public DiscordGuild? DebugGuild { get; private set; }
+    public DiscordClient Client { get; private set; }
+
+    private IEnumerable<IUrlHandler> UrlHandlers { get; set; }
+    private HttpClient HttpClient { get; set; }
+    private ILogger<Bot> Logger { get; set; }
 
 
-    public Bot(IEnumerable<IUrlHandler> urlHandlers, HttpClient httpClient)
+    public Bot(
+      IEnumerable<IUrlHandler> urlHandlers,
+      HttpClient httpClient,
+      ILogger<Bot> logger)
     {
-      m_UrlHandlers = urlHandlers;
-      m_HttpClient = httpClient;
+      UrlHandlers = urlHandlers;
+      HttpClient = httpClient;
+
+      Logger = logger;
 
       var token = BotConfig.GetToken();
 
-      m_Client = DiscordClientBuilder
+      Client = DiscordClientBuilder
         .CreateDefault(token, DiscordIntents.All)
         .ConfigureServices(services =>
         {
           services.AddSingleton(_ => this);
-          services.AddSingleton(_ => m_HttpClient);
+          services.AddSingleton(_ => HttpClient);
         })
         .UseCommands((services, extension) =>
         {
-          m_CommandsExtension = extension;
+          Commands = extension;
           extension.AddCommands(typeof(BasicCommands).Assembly);
           
           extension.CommandExecuted += OnCommandExecuted;
@@ -63,13 +70,13 @@ namespace R2D20B
     public Task StartAsync(CancellationToken cancellationToken)
     {
       var status = new DiscordActivity("Ligma", DiscordActivityType.Playing);
-      return m_Client.ConnectAsync(status, DiscordUserStatus.Online);
+      return Client.ConnectAsync(status, DiscordUserStatus.Online);
     }
 
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
-      return m_Client.DisconnectAsync();
+      return Client.DisconnectAsync();
     }
 
 
@@ -105,13 +112,13 @@ namespace R2D20B
       {
         if (!e.Guilds.TryGetValue(BotConfig.GetDebugGuildId(), out DiscordGuild? guild)) return;
 
-        m_DebugGuild = guild;
-        var botTestingChannel = guild.Channels.Values.Where(
-          c => c.Name == m_BotTestingChannelName).FirstOrDefault();
+        DebugGuild = guild;
+        var botTestingChannel = guild.Channels.Values.FirstOrDefault(
+          c => c.Name == s_BotTestingChannelName);
         
         if (botTestingChannel is null) return;
 
-        m_BotTestingChannelId = botTestingChannel.Id;
+        BotTestingChannelId = botTestingChannel.Id;
       });
     }
 
@@ -133,27 +140,15 @@ namespace R2D20B
 
       if (count <= 0) return;
 
-      foreach (var handler in m_UrlHandlers)
+      foreach (var handler in UrlHandlers)
         await handler.HandleAsync(urlInfos, e);
-    }
-
-
-    private List<string> ExtractUrls(string input)
-    {
-      var output = new List<string>();
-      var matches = Regex.Matches(input, m_UrlMatchPattern).Cast<Match>();
-
-      foreach (var match in matches)
-        output.Add(match.ToString());
-      
-      return output;
     }
 
 
     private List<UrlInfo> CreateUrlInfoList(string input)
     {
       var output = new List<UrlInfo>();
-      var matches = Regex.Matches(input, m_UrlMatchPattern).Cast<Match>();
+      var matches = Regex.Matches(input, s_UrlMatchPattern).Cast<Match>();
 
       foreach (var match in matches)
       {
@@ -163,65 +158,6 @@ namespace R2D20B
       }
       
       return output;
-    }
-
-
-    private async Task HandleTwitterUrls(DiscordClient client,
-      MessageCreatedEventArgs e, List<string> urls)
-    {
-      var fixedUrls = new List<string>();
-
-      foreach (var url in urls)
-      {
-        var fixedUrl = FixTwitterLink(url);
-
-        if (!string.IsNullOrEmpty(fixedUrl))
-          fixedUrls.Add(fixedUrl);
-      }
-
-      if (fixedUrls.Count <= 0) return;
-
-      var replySb = new StringBuilder();
-
-      foreach (var fixedUrl in fixedUrls)
-        replySb.AppendLine(fixedUrl);
-
-      await e.Message.ModifyEmbedSuppressionAsync(true);
-      await e.Message.RespondAsync(replySb.ToString());
-    }
-
-
-    private async Task GetTweetInfoAsync(string url)
-    {
-      
-    }
-
-
-    private string FixTwitterLink(string url)
-    {
-      if (!(url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
-        url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)))
-        url = "https://" + url;
-      
-      if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
-        return string.Empty;
-      
-      var host = uri.Host;
-      
-      if (host.Equals("vxtwitter.com", StringComparison.OrdinalIgnoreCase) ||
-        host.EndsWith(".vxtwitter.com", StringComparison.OrdinalIgnoreCase)) 
-        return string.Empty;
-      if (!(host.Equals("twitter.com", StringComparison.OrdinalIgnoreCase) ||
-        host.EndsWith(".twitter.com", StringComparison.OrdinalIgnoreCase) ||
-        host.Equals("x.com", StringComparison.OrdinalIgnoreCase) ||
-        host.EndsWith(".x.com", StringComparison.OrdinalIgnoreCase)))
-        return string.Empty;
-
-      var leftSide = "https://vxtwitter.com";
-      var pathAndQuery = uri.PathAndQuery;
-      var fragment = uri.Fragment;
-
-      return leftSide + pathAndQuery + fragment;
     }
   }
 }

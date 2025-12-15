@@ -1,12 +1,14 @@
 using System.Text;
 using DSharpPlus.EventArgs;
+using Microsoft.Extensions.Logging;
 
 namespace R2D20B.Handlers
 {
   /// <summary>
   /// Handles Instagram URLs found inside messages.
   /// </summary>
-  internal class InstagramUrlHandler : UrlSwapHandler
+  internal class InstagramUrlHandler(ILogger<InstagramUrlHandler> logger)
+    : UrlSwapHandler(logger)
   {
     /// <summary>
     /// The hosts to look for and swap out.
@@ -19,16 +21,13 @@ namespace R2D20B.Handlers
     private static readonly string s_ReplacementHost = "kkinstagram.com";
 
 
-    override public async Task HandleAsync(List<UrlInfo> urlInfos, MessageCreatedEventArgs e)
+    override protected async Task HandleHelperAsync(IEnumerable<UrlInfo> urlInfos,
+      MessageCreatedEventArgs e)
     {
-      // Filter down to just the URLs that this handler can handle
-      var relevantUrlInfos = urlInfos.Where(CanHandle);
-      if (!relevantUrlInfos.Any()) return;
-
       // Construct a StringBuilder that will contain the reply
       var replySb = new StringBuilder();
 
-      foreach (var urlInfo in relevantUrlInfos)
+      foreach (var urlInfo in urlInfos)
         replySb.AppendLine(urlInfo.ReplaceHost(s_ReplacementHost));
 
       if (replySb.Length <= 0) return;

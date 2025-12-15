@@ -6,23 +6,18 @@ using DSharpPlus.Commands.Trees;
 using DSharpPlus.Entities;
 using R2D20B.Attributes;
 using DSharpPlus.Commands.Trees.Metadata;
+using Microsoft.Extensions.Logging;
 
 
 namespace R2D20B.Commands
 {
-  internal class BasicCommands
+  internal class BasicCommands(Bot bot, HttpClient httpClient, ILogger<BasicCommands> logger)
   {
     static private readonly int s_HttpBodySnippetLength = 500;
 
-    private readonly Bot m_Bot;
-    private readonly HttpClient m_HttpClient;
-
-
-    public BasicCommands(Bot bot, HttpClient httpClient)
-    {
-      m_Bot = bot;
-      m_HttpClient = httpClient;
-    }
+    private Bot Bot { get; init; } = bot;
+    private HttpClient HttpClient { get; init; } = httpClient;
+    private ILogger<BasicCommands> Logger { get; init; } = logger;
 
 
     private static bool CommandHasAttribute<T>(Command command)
@@ -199,7 +194,7 @@ namespace R2D20B.Commands
 
       var replySb = new StringBuilder();
 
-      using var response = await m_HttpClient.GetAsync(urlInfo.Uri.ToString());
+      using var response = await HttpClient.GetAsync(urlInfo.Uri.ToString());
       replySb.AppendLine($"Status Code: {response.StatusCode}");
       replySb.AppendLine($"Request Uri: {response.RequestMessage?.RequestUri}");
       replySb.AppendLine($"Headers:");
@@ -224,7 +219,7 @@ namespace R2D20B.Commands
     {
       if (ctx is null) return;
 
-      var commands = m_Bot.m_CommandsExtension!.Commands.Values;
+      var commands = Bot.Commands!.Commands.Values;
       var count = commands.Count();
 
       var embedBuilder = new DiscordEmbedBuilder()

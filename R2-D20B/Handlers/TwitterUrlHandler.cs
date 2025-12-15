@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using DSharpPlus.Entities;
 using DSharpPlus.EventArgs;
+using Microsoft.Extensions.Logging;
 using Formatter = DSharpPlus.Formatter;
 
 
@@ -10,7 +11,8 @@ namespace R2D20B.Handlers
   /// <summary>
   /// Handles Twitter URLs found inside messages.
   /// </summary>
-  internal class TwitterUrlHandler(HttpClient httpClient) : UrlSwapHandler
+  internal class TwitterUrlHandler(HttpClient httpClient, ILogger<TwitterUrlHandler> logger)
+    : UrlSwapHandler(logger)
   {
     /// <summary>
     /// The hosts to look for and swap out.
@@ -146,14 +148,11 @@ namespace R2D20B.Handlers
     }
 
     
-    override public async Task HandleAsync(List<UrlInfo> urlInfos, MessageCreatedEventArgs e)
+    override protected async Task HandleHelperAsync(IEnumerable<UrlInfo> urlInfos,
+      MessageCreatedEventArgs e)
     {
-      // Filter down to just the URLs that this handler can handle
-      var relevantUrlInfos = urlInfos.Where(CanHandle);
-      if (!relevantUrlInfos.Any()) return;
-
       // Handle each URL
-      foreach (var urlInfo in relevantUrlInfos)
+      foreach (var urlInfo in urlInfos)
       {
         QuoteReset();
 
