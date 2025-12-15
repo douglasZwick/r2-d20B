@@ -1,10 +1,12 @@
-﻿namespace R2_D20B.Tests;
+﻿using Xunit;
 
-public class UnitTest1
+namespace R2_D20B.Tests;
+
+public class SanityTests
 {
-    [Fact]
-    public void Test1()
-    {
-
-    }
+  [Fact]
+  public void True_Is_True()
+  {
+    Assert.True(true);
+  }
 }
