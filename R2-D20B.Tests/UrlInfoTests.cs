@@ -1,6 +1,7 @@
 namespace R2D20B.Tests;
 
-public class UrlInfoTests
+
+public sealed class UrlInfoTests
 {
   [Fact]
   public void UrlInfo_Recognizes_A_Basic_Https_Url_As_Valid()
