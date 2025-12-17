@@ -1,10 +1,14 @@
 ﻿using DSharpPlus;
 using DSharpPlus.Commands;
+using Lavalink4NET;
+using Lavalink4NET.Extensions;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using R2D20B.Commands;
 using R2D20B.Handlers;
+
 
 namespace R2D20B
 {
@@ -15,6 +19,9 @@ namespace R2D20B
       var builder = Host.CreateApplicationBuilder(args);
 
       builder.Services.AddSingleton(sp =>
+        CreateDiscordClient(sp, sp.GetRequiredService<HttpClient>()));
+      
+      builder.Services.AddSingleton(sp =>
       {
         var httpClient = new HttpClient();
         httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
@@ -24,6 +31,20 @@ namespace R2D20B
       });
       
       builder.Services.AddHostedService<Bot>();
+      
+      builder.Services.ConfigureLavalink(config =>
+      {
+        var section = builder.Configuration.GetRequiredSection("Lavalink");
+
+        static string Require(IConfigurationSection s, string key) =>
+          s[key] ?? throw new InvalidOperationException(
+            $"Lavalink setting '{key}' is missing from appsettings.json.");
+
+        config.BaseAddress = new Uri(Require(section, "BaseAddress"));
+        config.Passphrase = Require(section, "Passphrase");
+        config.ReadyTimeout = TimeSpan.FromSeconds(30);
+      });
+      builder.Services.AddLavalink();
 
       builder.Services.AddSingleton<GatewayEventHandlers>();
       builder.Services.AddSingleton<UrlHandlingDispatcher>();
@@ -31,9 +52,6 @@ namespace R2D20B
       builder.Services.AddSingleton<IUrlHandler, InstagramUrlHandler>();
       builder.Services.AddSingleton<CommandRegistry>();
 
-      builder.Services.AddSingleton(sp =>
-        CreateDiscordClient(sp, sp.GetRequiredService<HttpClient>()));
-      
       var host = builder.Build();
       await host.RunAsync();
     }
@@ -50,6 +68,7 @@ namespace R2D20B
         .ConfigureServices(s =>
         {
           s.AddSingleton(httpClient);
+          s.AddSingleton(_ => services.GetRequiredService<IAudioService>());
           s.AddSingleton(_ => services.GetRequiredService<CommandRegistry>());
           s.AddSingleton(_ => services.GetRequiredService<ILoggerFactory>());
         })
@@ -57,6 +76,10 @@ namespace R2D20B
         {
           services.GetRequiredService<CommandRegistry>().Initialize(extension);
           extension.AddCommands(typeof(BasicCommands).Assembly);
+        },
+        new CommandsConfiguration
+        {
+          CommandExecutor = new AsyncCommandExecutor(),
         })
         .ConfigureEventHandlers(eventHandlingBuilder =>
         {
