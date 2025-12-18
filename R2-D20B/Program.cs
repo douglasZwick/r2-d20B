@@ -1,5 +1,6 @@
 ﻿using DSharpPlus;
 using DSharpPlus.Commands;
+using DSharpPlus.Extensions;
 using Lavalink4NET;
 using Lavalink4NET.Extensions;
 using Microsoft.Extensions.Configuration;
@@ -18,8 +19,14 @@ namespace R2D20B
     {
       var builder = Host.CreateApplicationBuilder(args);
 
-      builder.Services.AddSingleton(sp =>
-        CreateDiscordClient(sp, sp.GetRequiredService<HttpClient>()));
+      // builder.Services.AddSingleton(sp =>
+      //   CreateDiscordClient(sp, sp.GetRequiredService<HttpClient>()));
+      builder.Services.AddDiscordClient(BotConfig.GetToken(), DiscordIntents.All);
+      builder.Services.AddCommandsExtension((sp, commands) =>
+      {
+        sp.GetRequiredService<CommandRegistry>().Initialize(commands);
+        commands.AddCommands(typeof(BasicCommands).Assembly);
+      });
       
       builder.Services.AddSingleton(sp =>
       {
