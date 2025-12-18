@@ -22,6 +22,16 @@ namespace R2D20B
       // builder.Services.AddSingleton(sp =>
       //   CreateDiscordClient(sp, sp.GetRequiredService<HttpClient>()));
       builder.Services.AddDiscordClient(BotConfig.GetToken(), DiscordIntents.All);
+      builder.Services.ConfigureEventHandlers(b =>
+      {
+        b.HandleMessageCreated((client, e) =>
+          client.ServiceProvider.GetRequiredService<GatewayEventHandlers>()
+            .OnMessageCreated(client, e));
+        b.HandleGuildDownloadCompleted((client, e) =>
+          client.ServiceProvider.GetRequiredService<GatewayEventHandlers>()
+            .OnGuildDownloadCompleted(client, e));
+      });
+      
       builder.Services.AddCommandsExtension((sp, commands) =>
       {
         sp.GetRequiredService<CommandRegistry>().Initialize(commands);
@@ -60,6 +70,8 @@ namespace R2D20B
       builder.Services.AddSingleton<CommandRegistry>();
 
       var host = builder.Build();
+      // TODO: Look into whether I can hook the events via the client somewhere around here,
+      //   rather than via the lambda-within-lambda approach above
       await host.RunAsync();
     }
 
