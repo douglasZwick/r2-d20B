@@ -39,6 +39,7 @@ internal class Program
     builder.Services.AddSingleton<IUrlHandler, TwitterUrlHandler>();
     builder.Services.AddSingleton<IUrlHandler, InstagramUrlHandler>();
     builder.Services.AddSingleton<CommandRegistry>();
+    builder.Services.AddSingleton<UptimeService>();
 
     //////
     /// 

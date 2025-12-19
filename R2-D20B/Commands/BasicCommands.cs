@@ -14,12 +14,14 @@ namespace R2D20B.Commands
   internal class BasicCommands(
     CommandRegistry registry,
     HttpClient httpClient,
+    UptimeService uptimeService,
     ILogger<BasicCommands> logger)
   {
     static private readonly int s_HttpBodySnippetLength = 500;
 
     private CommandRegistry Registry { get; init; } = registry;
     private HttpClient HttpClient { get; init; } = httpClient;
+    private UptimeService UptimeService { get; init; } = uptimeService;
     private ILogger<BasicCommands> Logger { get; init; } = logger;
 
 
@@ -241,6 +243,15 @@ namespace R2D20B.Commands
       }
 
       await ctx.RespondAsync(embedBuilder.Build());
+    }
+
+
+    [Command("uptime")]
+    [Description("Shows how long I've been running.")]
+    public async ValueTask Uptime(CommandContext ctx)
+    {
+      await ctx.RespondAsync(
+        $"[ Beep. ] I've been running for {UptimeService.UptimeFormatted}. [ Boop. ]");
     }
   }
 }
