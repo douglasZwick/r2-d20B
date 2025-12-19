@@ -223,6 +223,29 @@ internal class LavalinkCommands(
   }
 
 
+  [Command("stop")]
+  [Description("Makes me stop playing whatever I'm currently playing.")]
+  public async ValueTask Stop(CommandContext ctx)
+  {
+    await SetupHelper(ctx);
+
+    if (!await Guards.RequireGuildAsync(ctx)) return;
+    if (ctx.Guild is not DiscordGuild guild)
+      throw new InvalidOperationException(
+        $"Expected {ctx.GetType().Name}.{nameof(ctx.Guild)} not to be null, but it was.");
+
+    var result = await RetrievePlayerAsync(
+      ctx, guild, connectToVoiceChannel: false, requireUserInVoice: false);
+    
+    if (!await Guards.RequirePlayerAsync(ctx, result)) return;
+    if (result.Player is null) throw new InvalidOperationException(
+      $"Expected {result.GetType().Name}.{nameof(result.Player)} not to be null, but it was. "
+        + $"Result status: {result.Status}");
+    
+    await StopHelper(ctx, result);
+  }
+
+
   private static async ValueTask SetupHelper(CommandContext ctx)
   {
     await ctx.DeferResponseAsync().ConfigureAwait(false);
@@ -263,7 +286,18 @@ internal class LavalinkCommands(
 
     await ctx.EditResponseAsync(new DiscordFollowupMessageBuilder()
       .WithContent(successMessage)).ConfigureAwait(false);
+  }
+
+
+  private async ValueTask StopHelper(CommandContext ctx, PlayerRetrieveResult result)
+  {
+    if (result.Player is null) throw new InvalidOperationException(
+      $"Expected {result.GetType().Name}.{nameof(result.Player)} not to be null, but it was. "
+        + $"Result status: {result.Status}");
     
+    await result.Player.StopAsync();
+    await ctx.EditResponseAsync(new DiscordFollowupMessageBuilder()
+      .WithContent("[ Borp. ] Audio stopped. [ Boople. ]")).ConfigureAwait(false);
   }
 
 
