@@ -9,7 +9,6 @@ using Lavalink4NET;
 using Lavalink4NET.Players;
 using Lavalink4NET.Players.Queued;
 using Lavalink4NET.Rest.Entities.Tracks;
-using Lavalink4NET.Tracks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -27,16 +26,74 @@ internal class LavalinkCommands(
   private IAudioService AudioService { get; init; } = audioService;
   private ILogger<LavalinkCommands> Logger { get; init; } = logger;
 
-
-  private enum ErrorStatus
+  
+  private class Guards
   {
-    Success,
-    NoUrlReceived,
-    NoYouTubeQueryReceived,
-    YouTubeUrlNotFound,
-    NoYouTubeSearchResults,
-    PlayerRetrievalFailure,
+    public static async ValueTask<bool> RequireGuildAsync(CommandContext ctx)
+    {
+      if (ctx.Guild is null)
+      {
+        var errorResponse = new DiscordFollowupMessageBuilder()
+          .WithContent("[ Zeep. ] This command only works in a Discord server. [ Morp. ]")
+          .AsEphemeral();
+        
+        await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
+        return false;
+      }
 
+      return true;
+    }
+
+
+    public static async ValueTask<bool> RequireUrlOrQueryAsync(
+      CommandContext ctx, string? audioString, TrackSearchMode searchMode)
+    {
+      if (string.IsNullOrWhiteSpace(audioString))
+      {
+        var errorMessage = searchMode == TrackSearchMode.None
+          ? "This command expects a YouTube URL as an argument, "
+            + $"like this: `!play {s_ExampleUrl}`"
+          : "This command expects a YouTube search query as an argument, "
+            + $"like this: `!play {s_ExampleQuery}`";
+        errorMessage = $"[ Zeep. ] {errorMessage} [ Morp. ]";
+        var errorResponse = new DiscordFollowupMessageBuilder()
+          .WithContent(errorMessage)
+          .AsEphemeral();
+        
+        await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
+
+        return false;
+      }
+
+      return true;
+    }
+
+
+    public static async ValueTask<bool> RequirePlayerAsync(
+      CommandContext ctx, PlayerRetrieveResult result)
+    {
+      if (!result.IsSuccess)
+      {
+        var errorMessage = result.Status switch
+        {
+          PlayerRetrieveStatus.UserNotInVoiceChannel =>
+            "[ Zeep. ] User not in voice channel. [ Morp. ]",
+          PlayerRetrieveStatus.BotNotConnected =>
+            "[ Zeep. ] I'm not currently connected. [ Morp. ]",
+          _ => $"[ Zeep. ] Unknown error. Result status: {result.Status} [ Morp. ]",
+        };
+
+        var errorResponse = new DiscordFollowupMessageBuilder()
+          .WithContent(errorMessage)
+          .AsEphemeral();
+        
+        await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
+
+        return false;
+      }
+
+      return true;
+    }
   }
 
 
@@ -67,48 +124,16 @@ internal class LavalinkCommands(
   [Description("Joins the voice channel you're in.")]
   public async ValueTask Join(CommandContext ctx)
   {
-    // Should I have this? The sample code has it
-    await ctx.DeferResponseAsync().ConfigureAwait(false);
+    await SetupHelper(ctx);
+    if (!await Guards.RequireGuildAsync(ctx)) return;
+    if (ctx.Guild is not DiscordGuild guild)
+      throw new InvalidOperationException(
+        $"Expected {ctx.GetType().Name}.{nameof(ctx.Guild)} not to be null, but it was.");
 
-    if (ctx.Guild is null)
-    {
-      var errorResponse = new DiscordFollowupMessageBuilder()
-        .WithContent("[ Zeep. ] This command only works in a Discord server. [ Morp. ]")
-        .AsEphemeral();
-      
-      await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
-      return;
-    }
+    var result = await RetrievePlayerAsync(
+      ctx, guild, connectToVoiceChannel: true, requireUserInVoice: true);
 
-    var result = await RetrievePlayerAsync(ctx, connectToVoiceChannel: true).ConfigureAwait(false);
-    if (result is null)
-    {
-      var errorResponse = new DiscordFollowupMessageBuilder()
-        .WithContent("[ Zeep. ] GetPlayerAsync result null. [ Morp. ]")
-        .AsEphemeral();
-      
-      await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
-      return;
-    }
-
-    if (!result.IsSuccess)
-    {
-      var errorMessage = result.Status switch
-      {
-        PlayerRetrieveStatus.UserNotInVoiceChannel =>
-          "[ Zeep. ] User not in voice channel. [ Morp. ]",
-        PlayerRetrieveStatus.BotNotConnected =>
-          "[ Zeep. ] I'm not currently connected. [ Morp. ]",
-        _ => $"[ Zeep. ] Unknown error. Result status: {result.Status} [ Morp. ]",
-      };
-
-      var errorResponse = new DiscordFollowupMessageBuilder()
-        .WithContent(errorMessage)
-        .AsEphemeral();
-      
-      await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
-      return;
-    }
+    if (!await Guards.RequirePlayerAsync(ctx, result)) return;
 
     await ctx.EditResponseAsync(new DiscordFollowupMessageBuilder()
       .WithContent($"[ Boop. ] Okay, I've joined you. [ Meep. ]")).ConfigureAwait(false);
@@ -119,46 +144,19 @@ internal class LavalinkCommands(
   [Description("Makes me leave the voice channel I'm in.")]
   public async ValueTask Leave(CommandContext ctx)
   {
-    // Should I have this? The sample code has it
-    await ctx.DeferResponseAsync().ConfigureAwait(false);
+    await SetupHelper(ctx);
+    if (!await Guards.RequireGuildAsync(ctx)) return;
+    if (ctx.Guild is not DiscordGuild guild)
+      throw new InvalidOperationException(
+        $"Expected {ctx.GetType().Name}.{nameof(ctx.Guild)} not to be null, but it was.");
 
-    if (ctx.Guild is null)
-    {
-      var errorResponse = new DiscordFollowupMessageBuilder()
-        .WithContent("[ Zeep. ] This command only works in a Discord server. [ Morp. ]")
-        .AsEphemeral();
-      
-      await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
-      return;
-    }
+    var result = await RetrievePlayerAsync(
+      ctx, guild, connectToVoiceChannel: false, requireUserInVoice: false);
 
-    var result = await RetrievePlayerAsync(ctx, connectToVoiceChannel: false).ConfigureAwait(false);
-    if (result is null)
-    {
-      var errorResponse = new DiscordFollowupMessageBuilder()
-        .WithContent("[ Zeep. ] GetPlayerAsync result null. [ Morp. ]")
-        .AsEphemeral();
-      
-      await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
-      return;
-    }
-
-    if (!result.IsSuccess)
-    {
-      var errorMessage = result.Status switch
-      {
-        PlayerRetrieveStatus.BotNotConnected =>
-          "[ Zeep. ] I'm not currently connected. [ Morp. ]",
-        _ => $"[ Zeep. ] Unknown error. Result status: {result.Status} [ Morp. ]",
-      };
-
-      var errorResponse = new DiscordFollowupMessageBuilder()
-        .WithContent(errorMessage)
-        .AsEphemeral();
-      
-      await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
-      return;
-    }
+    if (!await Guards.RequirePlayerAsync(ctx, result)) return;
+    if (result.Player is null) throw new InvalidOperationException(
+      $"Expected {result.GetType().Name}.{nameof(result.Player)} not to be null, but it was. "
+        + $"Result status: {result.Status}");
 
     await result.Player.DisposeAsync();
     await ctx.EditResponseAsync(new DiscordFollowupMessageBuilder()
@@ -173,89 +171,26 @@ internal class LavalinkCommands(
     [Parameter("url")]
     string? url)
   {
-    // Should I have this? The sample code has it
-    await ctx.DeferResponseAsync().ConfigureAwait(false);
+    await SetupHelper(ctx);
+    var searchMode = TrackSearchMode.None;
 
-    if (string.IsNullOrWhiteSpace(url)) // TODO: Maybe also validate URLs with a Uri or something
-    {
-      var errorResponse = new DiscordFollowupMessageBuilder()
-        .WithContent("[ Zeep. ] This command expects a YouTube URL as an argument, "
-          + $"like this: `!play {s_ExampleUrl}` [ Morp. ]")
-        .AsEphemeral();
-      
-      await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
-      return;
-    }
+    if (!await Guards.RequireUrlOrQueryAsync(ctx, url, searchMode)) return;
+    if (url is null) throw new InvalidOperationException(
+      $"Expected URL not to be null, but it was.");
+    if (!await Guards.RequireGuildAsync(ctx)) return;
+    if (ctx.Guild is not DiscordGuild guild)
+      throw new InvalidOperationException(
+        $"Expected {ctx.GetType().Name}.{nameof(ctx.Guild)} not to be null, but it was.");
 
-    if (ctx.Guild is null)
-    {
-      var errorResponse = new DiscordFollowupMessageBuilder()
-        .WithContent("[ Zeep. ] This command only works in a Discord server. [ Morp. ]")
-        .AsEphemeral();
-      
-      await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
-      return;
-    }
+    var result = await RetrievePlayerAsync(
+      ctx, guild, connectToVoiceChannel: true, requireUserInVoice: true);
 
-    var result = await RetrievePlayerAsync(ctx, connectToVoiceChannel: true).ConfigureAwait(false);
-    if (result is null)
-    {
-      var errorResponse = new DiscordFollowupMessageBuilder()
-        .WithContent("[ Zeep. ] GetPlayerAsync result null. [ Morp. ]")
-        .AsEphemeral();
-      
-      await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
-      return;
-    }
-
-    if (!result.IsSuccess)
-    {
-      var errorMessage = result.Status switch
-      {
-        PlayerRetrieveStatus.UserNotInVoiceChannel =>
-          "[ Zeep. ] User not in voice channel. [ Morp. ]",
-        PlayerRetrieveStatus.BotNotConnected =>
-          "[ Zeep. ] I'm not currently connected. [ Morp. ]",
-        _ => $"[ Zeep. ] Unknown error. Result status: {result.Status} [ Morp. ]",
-      };
-
-      var errorResponse = new DiscordFollowupMessageBuilder()
-        .WithContent(errorMessage)
-        .AsEphemeral();
-      
-      await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
-      return;
-    }
-
-    var track = await AudioService.Tracks
-      .LoadTrackAsync(url, TrackSearchMode.None)
-      .ConfigureAwait(false);
+    if (!await Guards.RequirePlayerAsync(ctx, result)) return;
+    if (result.Player is null) throw new InvalidOperationException(
+      $"Expected {result.GetType().Name}.{nameof(result.Player)} not to be null, but it was. "
+        + $"Result status: {result.Status}");
     
-    // I guess this might happen if the URL is bad
-    if (track is null)
-    {
-      var errorResponse = new DiscordFollowupMessageBuilder()
-        .WithContent("[ Zeep. ] I couldn't find that video. [ Morp. ]")
-        .AsEphemeral();
-      
-      await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
-
-      return;
-    }
-
-    var position = await result.Player.PlayAsync(track).ConfigureAwait(false);
-    var name = track.SourceName ?? track.Uri?.ToString();
-
-    if (position is 0)
-    {
-      await ctx.EditResponseAsync(new DiscordFollowupMessageBuilder()
-        .WithContent($"[ Beep. ] Added to queue: {name} [ Boop. ]")).ConfigureAwait(false);
-    }
-    else
-    {
-      await ctx.EditResponseAsync(new DiscordFollowupMessageBuilder()
-        .WithContent($"[ Beep. ] Now playing: {name} [ Boop. ]")).ConfigureAwait(false);
-    }
+    await PlayHelper(ctx, url, searchMode, result);
   }
 
 
@@ -267,110 +202,30 @@ internal class LavalinkCommands(
     [Parameter("query")][RemainingText]
     string query = "")
   {
-    // Should I have this? The sample code has it
-    await ctx.DeferResponseAsync().ConfigureAwait(false);
+    await SetupHelper(ctx);
+    var searchMode = TrackSearchMode.YouTube;
 
-    if (string.IsNullOrWhiteSpace(query)) // TODO: Maybe also validate URLs with a Uri or something
-    {
-      var errorResponse = new DiscordFollowupMessageBuilder()
-        .WithContent("[ Zeep. ] This command expects a YouTube search query as an argument, "
-          + $"like this: `!play {s_ExampleQuery}` [ Morp. ]")
-        .AsEphemeral();
-      
-      await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
-      return;
-    }
+    if (!await Guards.RequireUrlOrQueryAsync(ctx, query, searchMode)) return;
+    if (!await Guards.RequireGuildAsync(ctx)) return;
+    if (ctx.Guild is not DiscordGuild guild)
+      throw new InvalidOperationException(
+        $"Expected {ctx.GetType().Name}.{nameof(ctx.Guild)} not to be null, but it was.");
 
-    if (ctx.Guild is null)
-    {
-      var errorResponse = new DiscordFollowupMessageBuilder()
-        .WithContent("[ Zeep. ] This command only works in a Discord server. [ Morp. ]")
-        .AsEphemeral();
-      
-      await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
-      return;
-    }
+    var result = await RetrievePlayerAsync(
+      ctx, guild, connectToVoiceChannel: true, requireUserInVoice: true);
 
-    var result = await RetrievePlayerAsync(ctx, connectToVoiceChannel: true).ConfigureAwait(false);
-
-    if (!result.IsSuccess)
-    {
-      var errorMessage = result.Status switch
-      {
-        PlayerRetrieveStatus.UserNotInVoiceChannel =>
-          "[ Zeep. ] User not in voice channel. [ Morp. ]",
-        PlayerRetrieveStatus.BotNotConnected =>
-          "[ Zeep. ] I'm not currently connected. [ Morp. ]",
-        _ => $"[ Zeep. ] Unknown error. Result status: {result.Status} [ Morp. ]",
-      };
-
-      var errorResponse = new DiscordFollowupMessageBuilder()
-        .WithContent(errorMessage)
-        .AsEphemeral();
-      
-      await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
-      return;
-    }
-
-    var track = await AudioService.Tracks
-      .LoadTrackAsync(query, TrackSearchMode.YouTube)
-      .ConfigureAwait(false);
+    if (!await Guards.RequirePlayerAsync(ctx, result)) return;
+    if (result.Player is null) throw new InvalidOperationException(
+      $"Expected {result.GetType().Name}.{nameof(result.Player)} not to be null, but it was. "
+        + $"Result status: {result.Status}");
     
-    if (track is null)
-    {
-      var errorResponse = new DiscordFollowupMessageBuilder()
-        .WithContent($"[ Zeep. ] No search results for `{query}`. [ Morp. ]")
-        .AsEphemeral();
-      
-      await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
-
-      return;
-    }
-
-    var position = await result.Player.PlayAsync(track).ConfigureAwait(false);
-    var name = track.SourceName ?? track.Uri?.ToString();
-
-    if (position is 0)
-    {
-      await ctx.EditResponseAsync(new DiscordFollowupMessageBuilder()
-        .WithContent($"[ Beep. ] Added to queue: {name} [ Boop. ]")).ConfigureAwait(false);
-    }
-    else
-    {
-      await ctx.EditResponseAsync(new DiscordFollowupMessageBuilder()
-        .WithContent($"[ Beep. ] Now playing: {name} [ Boop. ]")).ConfigureAwait(false);
-    }
+    await PlayHelper(ctx, query, searchMode, result);
   }
 
 
-  private async ValueTask SetupHelper(CommandContext ctx)
+  private static async ValueTask SetupHelper(CommandContext ctx)
   {
     await ctx.DeferResponseAsync().ConfigureAwait(false);
-  }
-
-
-  private async ValueTask ErrorResponseHelper(CommandContext ctx)
-  {
-    if (ctx.Guild is null)
-    {
-      var errorResponse = new DiscordFollowupMessageBuilder()
-        .WithContent("[ Zeep. ] This command only works in a Discord server. [ Morp. ]")
-        .AsEphemeral();
-      
-      await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
-      return;
-    }
-
-    var result = await RetrievePlayerAsync(ctx, connectToVoiceChannel: true).ConfigureAwait(false);
-    if (result is null)
-    {
-      var errorResponse = new DiscordFollowupMessageBuilder()
-        .WithContent("[ Zeep. ] GetPlayerAsync result null. [ Morp. ]")
-        .AsEphemeral();
-      
-      await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
-      return;
-    }
   }
 
 
@@ -378,55 +233,45 @@ internal class LavalinkCommands(
     CommandContext ctx, string audioString,
     TrackSearchMode searchMode, PlayerRetrieveResult result)
   {
+    if (result.Player is null) throw new InvalidOperationException(
+      $"Expected {result.GetType().Name}.{nameof(result.Player)} not to be null, but it was. "
+        + $"Result status: {result.Status}");
+
     var track = await AudioService.Tracks
       .LoadTrackAsync(audioString, searchMode)
       .ConfigureAwait(false);
     
     if (track is null)
     {
-      var errorStatus = searchMode == TrackSearchMode.None
-        ? ErrorStatus.YouTubeUrlNotFound : ErrorStatus.NoYouTubeSearchResults;
-      var errorMessage = string.Format(GetStatusMessage(errorStatus), audioString);
+      var errorMessage = searchMode == TrackSearchMode.None
+        ? $"[ Zeep. ] I couldn't find a video with URL {audioString}. [ Morp. ]"
+        : $"[ Zeep. ] No search results for `{audioString}`. [ Morp. ]";
       var errorResponse = new DiscordFollowupMessageBuilder()
         .WithContent(errorMessage)
         .AsEphemeral();
       
       await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
 
-      return;
-    }
-
-    if (!result.IsSuccess)
-    {
-      var errorMessage = result.Status switch
-      {
-        PlayerRetrieveStatus.UserNotInVoiceChannel =>
-          "[ Zeep. ] User not in voice channel. [ Morp. ]",
-        PlayerRetrieveStatus.BotNotConnected =>
-          "[ Zeep. ] I'm not currently connected. [ Morp. ]",
-        _ => $"[ Zeep. ] Unknown error. Result status: {result.Status} [ Morp. ]",
-      };
-
-      var errorResponse = new DiscordFollowupMessageBuilder()
-        .WithContent(errorMessage)
-        .AsEphemeral();
-      
-      await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
       return;
     }
 
     var position = await result.Player.PlayAsync(track).ConfigureAwait(false);
     var name = track.Uri?.ToString();
     var successMessage = position is 0
-      ? $"[ Beep. ] Added to queue: {name} [ Boop. ]" : $"[ Beep. ] Now playing: {name} [ Boop. ]";
+      ? $"[ Beep. ] Added to queue: {name} [ Boop. ]"
+      : $"[ Beep. ] Now playing: {name} [ Boop. ]";
 
     await ctx.EditResponseAsync(new DiscordFollowupMessageBuilder()
       .WithContent(successMessage)).ConfigureAwait(false);
+    
   }
 
 
-  private async ValueTask<PlayerRetrieveResult> RetrievePlayerAsync
-    (CommandContext ctx, bool connectToVoiceChannel = true)
+  private async ValueTask<PlayerRetrieveResult> RetrievePlayerAsync(
+    CommandContext ctx,
+    DiscordGuild guild,
+    bool connectToVoiceChannel = true,
+    bool requireUserInVoice = true)
   {
     ArgumentNullException.ThrowIfNull(ctx);
 
@@ -434,8 +279,9 @@ internal class LavalinkCommands(
       connectToVoiceChannel ? PlayerChannelBehavior.Join : PlayerChannelBehavior.None);
     var playerOptions = new QueuedLavalinkPlayerOptions { HistoryCapacity = 10000, };
 
+    var channelId = requireUserInVoice ? ctx.Member?.VoiceState?.ChannelId : null;
     var result = await AudioService.Players
-      .RetrieveAsync(ctx.Guild!.Id, ctx.Member?.VoiceState.ChannelId,
+      .RetrieveAsync(guild.Id, channelId,
         playerFactory: PlayerFactory.Queued, Options.Create(playerOptions), retrieveOptions)
       .ConfigureAwait(false);
     
@@ -443,39 +289,5 @@ internal class LavalinkCommands(
       isSuccess: result.IsSuccess,
       status: result.Status,
       player: result.Player);
-  }
-
-
-  private static string GetStatusMessage(ErrorStatus status)
-  {
-    return status switch
-    {
-      ErrorStatus.NoUrlReceived =>
-        "[ Zeep. ] This command expects a YouTube URL as an argument, "
-          + $"like this: `!play {s_ExampleUrl}` [ Morp. ]",
-      ErrorStatus.NoYouTubeQueryReceived =>
-        "[ Zeep. ] This command expects a YouTube search query as an argument, "
-          + $"like this: `!play {s_ExampleQuery}` [ Morp. ]",
-      ErrorStatus.YouTubeUrlNotFound =>
-        "[ Zeep. ] I couldn't find a video with URL {0}. [ Morp. ]",
-      ErrorStatus.NoYouTubeSearchResults =>
-        "[ Zeep. ] No search results for `{0}`. [ Morp. ]",
-
-      _ => $"[ Zeep. ] Unknown error. Error status: {status} [ Morp. ]",
-    };
-  }
-
-
-  private static string GetPlayerRetrieveErrorMessage(PlayerRetrieveStatus status)
-  {
-    return status switch
-    {
-      PlayerRetrieveStatus.UserNotInVoiceChannel =>
-        "[ Zeep. ] User not in voice channel. [ Morp. ]",
-      PlayerRetrieveStatus.BotNotConnected =>
-        "[ Zeep. ] I'm not currently connected. [ Morp. ]",
-
-      _ => $"[ Zeep. ] Unknown error. Result status: {status} [ Morp. ]",
-    };
   }
 }
