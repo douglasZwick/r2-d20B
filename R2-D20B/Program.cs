@@ -77,7 +77,7 @@ internal class Program
           $"Lavalink setting '{key}' is missing from appsettings.json.");
 
       config.BaseAddress = new Uri(Require(section, "BaseAddress"));
-      config.Passphrase = Require(section, "Passphrase");
+      config.Passphrase = BotConfig.GetLavalinkServerPassword();
       config.ReadyTimeout = TimeSpan.FromSeconds(30);
     });
     builder.Services.AddLavalink();

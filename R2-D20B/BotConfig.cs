@@ -19,6 +19,20 @@ namespace R2D20B
     }
 
 
+    public static string GetLavalinkServerPassword()
+    {
+      var password = Environment.GetEnvironmentVariable("LAVALINK_SERVER_PASSWORD");
+
+      if (string.IsNullOrWhiteSpace(password))
+        throw new InvalidOperationException(
+          "Lavalink password not configured. Set the LAVALINK_SERVER_PASSWORD "
+          + "environment variable to the password value and try again."
+        );
+      
+      return password;
+    }
+
+
     public static ulong GetDebugGuildId()
     {
       var rawString = Environment.GetEnvironmentVariable("DEBUG_GUILD_ID");
