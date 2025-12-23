@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using DSharpPlus.Commands;
 using DSharpPlus.Commands.ArgumentModifiers;
+using DSharpPlus.Commands.Processors.TextCommands;
 using DSharpPlus.Commands.Trees;
 using DSharpPlus.Commands.Trees.Metadata;
 using DSharpPlus.Entities;
@@ -286,10 +287,13 @@ internal class LavalinkCommands(
 
     await ctx.EditResponseAsync(new DiscordFollowupMessageBuilder()
       .WithContent(successMessage)).ConfigureAwait(false);
+    
+    if (ctx is TextCommandContext textCtx)
+      await textCtx.Message.ModifyEmbedSuppressionAsync(true);
   }
 
 
-  private async ValueTask StopHelper(CommandContext ctx, PlayerRetrieveResult result)
+  private static async ValueTask StopHelper(CommandContext ctx, PlayerRetrieveResult result)
   {
     if (result.Player is null) throw new InvalidOperationException(
       $"Expected {result.GetType().Name}.{nameof(result.Player)} not to be null, but it was. "

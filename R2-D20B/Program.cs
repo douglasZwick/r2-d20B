@@ -81,6 +81,18 @@ internal class Program
       config.Passphrase = BotConfig.GetLavalinkServerPassword();
       config.ReadyTimeout = TimeSpan.FromSeconds(30);
     });
+    builder.Services.AddOptions<SoundOptions>()
+      .Bind(builder.Configuration.GetRequiredSection("Sounds"))
+      .Validate(o => !string.IsNullOrWhiteSpace(o.RootPath),
+        "'Sounds: RootPath' is missing or empty.");
+    builder.Services.PostConfigure<SoundOptions>(o =>
+    {
+      if (string.IsNullOrWhiteSpace(o.RootPath)) return;
+
+      var baseDir = AppContext.BaseDirectory;
+      o.RootPath = Path.GetFullPath(
+        Path.IsPathRooted(o.RootPath) ? o.RootPath : Path.Combine(baseDir, o.RootPath));
+    });
     builder.Services.AddLavalink();
 
     //////
