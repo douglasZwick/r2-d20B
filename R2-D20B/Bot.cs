@@ -6,10 +6,14 @@ using Microsoft.Extensions.Hosting;
 namespace R2D20B;
 
 
-internal class Bot(DiscordClient client, UptimeService uptimeService) : IHostedService
+internal class Bot(
+  DiscordClient client,
+  SoundCatalog soundCatalog,
+  UptimeService uptimeService) : IHostedService
 {
   private DiscordClient Client { get; init; } = client;
-  private readonly UptimeService _ = uptimeService;
+  private readonly SoundCatalog _sc = soundCatalog;
+  private readonly UptimeService _us = uptimeService;
 
 
   public Task StartAsync(CancellationToken cancellationToken)

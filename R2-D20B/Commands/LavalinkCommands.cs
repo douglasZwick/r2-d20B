@@ -1,5 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Text;
 using DSharpPlus.Commands;
 using DSharpPlus.Commands.ArgumentModifiers;
 using DSharpPlus.Commands.Processors.TextCommands;
@@ -12,6 +14,7 @@ using Lavalink4NET.Players.Queued;
 using Lavalink4NET.Rest.Entities.Tracks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Formatter = DSharpPlus.Formatter;
 
 
 namespace R2D20B.Commands;
@@ -19,12 +22,22 @@ namespace R2D20B.Commands;
 
 internal class LavalinkCommands(
   IAudioService audioService,
+  SoundCatalog soundCatalog,
   ILogger<LavalinkCommands> logger)
 {
   private static readonly string s_ExampleUrl = "https://www.youtube.com/watch?v=9FLRHejWAo8";
   private static readonly string s_ExampleQuery = "reverb fart";
+  private static readonly HashSet<string> s_HiddenPrefixes = new(StringComparer.OrdinalIgnoreCase)
+    { "secret.", "music.", "r2.", };
+  private static readonly string s_SoundListEmbedTitle = "Sound List";
+  private static readonly string s_SoundListEmbedDescription =
+    "[ Birt. ] Here are the {0} sounds in my Sounds folder: [ Bip. ]";
+  private static readonly string s_SoundListEmbedDescriptionPrefixed =
+    "[ Birt. ] Here are the {0} sounds in my Sounds folder that start with... [ Bip. ]";
+  private static readonly string s_DefaultBucketName = "Digits / Symbols";
 
   private IAudioService AudioService { get; init; } = audioService;
+  private SoundCatalog SoundCatalog { get; init; } = soundCatalog;
   private ILogger<LavalinkCommands> Logger { get; init; } = logger;
 
   
@@ -166,18 +179,16 @@ internal class LavalinkCommands(
 
 
   [Command("play")]
-  [Description("Makes me play the audio from a YouTube video in voice.")]
-  public async ValueTask PlayYouTubeUrl(CommandContext ctx,
-    [Description("The URL of the video to play.")]
-    [Parameter("url")]
-    string? url)
+  [Description("Makes me play a local file, or audio from a URL, in voice.")]
+  public async ValueTask PlayFromUrl(CommandContext ctx,
+    [Description("The sound name or URL of the audio to play.")]
+    [Parameter("url")][RemainingText]
+    string soundNameOrUrl = "")
   {
     await SetupHelper(ctx);
     var searchMode = TrackSearchMode.None;
 
-    if (!await Guards.RequireUrlOrQueryAsync(ctx, url, searchMode)) return;
-    if (url is null) throw new InvalidOperationException(
-      $"Expected URL not to be null, but it was.");
+    if (!await Guards.RequireUrlOrQueryAsync(ctx, soundNameOrUrl, searchMode)) return;
     if (!await Guards.RequireGuildAsync(ctx)) return;
     if (ctx.Guild is not DiscordGuild guild)
       throw new InvalidOperationException(
@@ -191,7 +202,7 @@ internal class LavalinkCommands(
       $"Expected {result.GetType().Name}.{nameof(result.Player)} not to be null, but it was. "
         + $"Result status: {result.Status}");
     
-    await PlayHelper(ctx, url, searchMode, result);
+    await PlayHelper(ctx, soundNameOrUrl, searchMode, result);
   }
 
 
@@ -245,6 +256,201 @@ internal class LavalinkCommands(
     
     await StopHelper(ctx, result);
   }
+
+
+  [Command("soundlist")]
+  [TextAlias("sounds")]
+  [Description("Asks me to recite an alphabetical list of the sounds I can play.")]
+  public async ValueTask SoundList(CommandContext ctx,
+    [Description("If specified, I'll just show you the sounds that start with this.")]
+    [RemainingText]
+    string prefix = "")
+  {
+    var prefixSpecified = !string.IsNullOrEmpty(prefix);
+
+    var soundList = SoundCatalog.GetSortedList().Where(SecretFilter);
+
+    if (prefixSpecified)
+      soundList = soundList.Where(path => path.StartsWith(prefix,
+        StringComparison.OrdinalIgnoreCase));
+
+    foreach (var message in CreateSoundListMessages(soundList, prefix))
+      await ctx.RespondAsync(message);
+  }
+
+
+  private IReadOnlyList<DiscordMessageBuilder> CreateSoundListMessages(
+    IEnumerable<string> sortedSoundNames, string prefix = "")
+  {
+    const int MAX_CHARS_PER_MESSAGE = 6000;
+    const int MAX_EMBEDS_PER_MESSAGE = 10;
+    const int MAX_FIELDS_PER_EMBED = 25;
+    const int MAX_CHARS_PER_FIELD = 1024;
+
+    /// * INVARIANTS:
+    /// * 1. There's always room for the current field in the current embed.
+    /// * 2. There's always room for the current embed in the current message.
+    
+    var messages = new List<DiscordMessageBuilder>();
+    var message = new DiscordMessageBuilder();
+    var description = string.IsNullOrWhiteSpace(prefix)
+      ? s_SoundListEmbedDescriptionPrefixed : s_SoundListEmbedDescription;
+    var embed = new DiscordEmbedBuilder()
+      .WithTitle(s_SoundListEmbedTitle)
+      .WithDescription(string.Format(description, sortedSoundNames.Count()));
+    var sb = new StringBuilder();
+
+    var firstChar = sortedSoundNames.First().ToUpperInvariant()[0];
+    // A key to identify the current alphabetic bucket. '_' denotes the default bucket.
+    var bucketName =
+      (firstChar >= 'A' && firstChar <= 'Z') ? firstChar : '_';
+    // How many characters we need to increment charCount by whenever we start a new bucket.
+    var bucketNameLength = firstChar == '_' ? s_DefaultBucketName.Length : 1;
+    // The total characters to be written to the current message. Includes:
+    //   - all field values: the strings we add via the string builder. charCount accounts for this
+    //     just after a name is added.
+    //   - all field names:
+    //     - length of s_DefaultBucketName for just the very first field of the first bucket
+    //     - 1 for all other fields
+    //     charCount accounts for the length of the default bucket name on initialization. For all
+    //     subsequent fields, charCount accounts for this just after a field is added to an embed.
+    //   - all embed titles: the only one with a title is the very first embed. charCount accounts
+    //     for the length of the first embed's title on initialization.
+    //   - all embed descriptions: the only one with a description is the very first embed.
+    //     charCount accounts for the length of the first embed's description on initialization.
+    //   - all the characters currently in the string builder that haven't been put in a field yet.
+    var charCount = 0;
+    // The total embeds added to the current message.
+    var embedCount = 0;
+    // The total fields added to the current embed.
+    var fieldCount = 0;
+
+    // Enforces INVARIANT 1
+    void FlushField(bool unconditionalFullFlush)
+    {
+      var fieldName = bucketName == '_' ? s_DefaultBucketName : bucketName.ToString();
+      embed.AddField(fieldName, sb.ToString());
+      ++fieldCount;
+
+      if (unconditionalFullFlush || fieldCount >= MAX_FIELDS_PER_EMBED)
+        FlushEmbed(unconditionalFullFlush);
+      
+      sb.Clear();
+      
+    }
+
+    // Enforces INVARIANT 2
+    void FlushEmbed(bool unconditionalFullFlush)
+    {
+      message.AddEmbed(embed);
+      ++embedCount;
+
+      if (unconditionalFullFlush || embedCount >= MAX_EMBEDS_PER_MESSAGE)
+        FlushMessage();
+
+      embed = new();
+      fieldCount = 0;
+    }
+
+    void FlushMessage()
+    {
+      messages.Add(message);
+      
+      message = new();
+      embedCount = 0;
+      charCount = 0;
+    }
+
+    void NewBucket(char bucketKey)
+    {
+      bucketName = bucketKey;
+      bucketNameLength = 1;
+      charCount += bucketNameLength;
+    }
+
+    foreach (var soundName in sortedSoundNames)
+    {
+      firstChar = soundName.ToUpperInvariant()[0];
+      var bucketKey = (firstChar >= 'A' && firstChar <= 'Z') ? firstChar : '_';
+
+      if (bucketKey != bucketName)
+      {
+        // We need to start a new bucket. The first name in a bucket will always start a new field.
+        // * INVARIANT 1 guarantees we will always have < MAX_FIELDS fields in the current embed.
+        FlushField(unconditionalFullFlush: false);
+        NewBucket(bucketKey);
+      }
+
+      var formattedName = Formatter.InlineCode(soundName);
+      var deltaCount = formattedName.Length + (sb.Length > 0 ? 1 : 0);
+
+      // Check to see if we have room to add formattedName to the current message. We need to make
+      // sure that charCount takes into account all the text that could possibly count toward
+      // MAX_CHARS_PER_MESSAGE. This is limited to the following:
+      // - all field values: the strings we add via the string builder. charCount accounts for this
+      //   just after a name is added.
+      // - all field names:
+      //   - length of s_DefaultBucketName for just the very first field of the first bucket
+      //   - 1 for the first field of all other buckets
+      //   - 0 for all other fields
+      //   charCount accounts for the length of the default bucket name on initialization. For all
+      //   subsequent fields, charCount accounts for this just after a field is added to an embed.
+      // - all embed titles: the only one with a title is the very first embed. charCount accounts
+      //   for the length of the first embed's title on initialization.
+      // - all embed descriptions: the only one with a description is the very first embed.
+      //   charCount accounts for the length of the first embed's description on initialization.
+      // - all the characters currently in the string builder that haven't been put in a field yet.
+      if (charCount + deltaCount > MAX_CHARS_PER_MESSAGE)
+      {
+        // The current message is full. We need to move on to the next message builder.
+        FlushField(unconditionalFullFlush: true);
+      }
+
+      // Check to see if we have enough room to add formattedName to the current field. The string
+      // builder's length is our counter for this.
+      if (sb.Length + deltaCount > MAX_CHARS_PER_FIELD)
+      {
+        // We need to move on to the next field.
+        // * INVARIANT 1 guarantees we will always have < MAX_FIELDS fields in the current embed.
+        FlushField(unconditionalFullFlush: false);
+      }
+
+      if (sb.Length > 0)
+      {
+        formattedName = " " + formattedName;
+        ++deltaCount;
+      }
+
+      sb.Append(formattedName);
+      charCount += deltaCount;
+    }
+
+    // We need to add to the list the message we were working on when the loop ended (if any).
+    if (sb.Length > 0)
+    {
+      FlushField(unconditionalFullFlush: true);
+    }
+
+    return messages;
+  }
+
+
+  /// <summary>
+  /// Returns whether the input string DOES NOT start with a hidden prefix.
+  /// </summary>
+  /// <param name="input">The string to check</param>
+  /// <returns>False if it do, true if it don't.</returns>
+  private static bool SecretFilter(string input)
+    => !s_HiddenPrefixes.Any(p => input.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+
+
+  /// <summary>
+  /// Creates a string by joining each item in the given list wrapped individually in backticks.
+  /// </summary>
+  /// <param name="soundList">The list from which to create the string.</param>
+  /// <returns>The string so created.</returns>
+  private static string CreateSoundBucketString(IEnumerable<string> soundList)
+    => string.Join(" ", soundList.Where(SecretFilter).Select(Formatter.InlineCode));
 
 
   private static async ValueTask SetupHelper(CommandContext ctx)

@@ -93,6 +93,7 @@ internal class Program
       o.RootPath = Path.GetFullPath(
         Path.IsPathRooted(o.RootPath) ? o.RootPath : Path.Combine(baseDir, o.RootPath));
     });
+    builder.Services.AddSingleton<SoundCatalog>();
     builder.Services.AddLavalink();
 
     //////

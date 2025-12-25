@@ -1,3 +1,6 @@
+using System.Collections.Immutable;
+using System.Text;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 
@@ -27,9 +30,14 @@ internal sealed class SoundCatalog
   /// </summary>
   private HashSet<string> Sounds { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+  private ILogger<SoundCatalog> Logger { get; init; }
 
-  public SoundCatalog(IOptions<SoundOptions> options)
+
+  public SoundCatalog(
+    IOptions<SoundOptions> options,
+    ILogger<SoundCatalog> logger)
   {
+    Logger = logger;
     var rootPath = options.Value.RootPath;
 
     if (!Directory.Exists(rootPath))
@@ -48,14 +56,27 @@ internal sealed class SoundCatalog
   private void PopulateCatalog()
   {
     var rootFilePaths = Directory.EnumerateFiles(RootPath);
+    var sb = new StringBuilder();
+    sb.AppendLine($"Adding sounds from {RootPath}:");
+
+    var count = 0;
 
     foreach (var filePath in rootFilePaths)
     {
       var fileName = Path.GetFileName(filePath);
 
-      if (HasAllowedExtension(fileName))
-        Sounds.Add(fileName);
+      if (!HasAllowedExtension(fileName)) continue;
+
+      sb.AppendLine($"  - Adding {fileName}...");
+      Sounds.Add(fileName);
+      ++count;
     }
+
+    if (sb.Length > 0)
+      Logger.LogInformation("{LoadedSounds}",
+        sb.AppendLine($"- Finished adding {count} sound(s).").ToString());
+    else
+      Logger.LogInformation($"  - No valid sound files found.");
   }
 
 
@@ -66,6 +87,20 @@ internal sealed class SoundCatalog
   /// <returns>True if it has an allowed extension, false otherwise.</returns>
   private static bool HasAllowedExtension(string fileName)
     => s_AllowedExtensions.Contains(Path.GetExtension(fileName));
+
+
+  /// <summary>
+  /// Returns the file Uri pointing to the given sound file name.
+  /// </summary>
+  /// <param name="name">The sound name to retrieve.</param>
+  /// <returns>The Uri to the sound file, or null if it can't be found.</returns>
+  public Uri? TryGetSoundUri(string name)
+  {
+    var path = TryGetSoundPathByName(name);
+    if (path is null) return null;
+
+    return new Uri(path, UriKind.Absolute);
+  }
 
   
   /// <summary>
@@ -126,4 +161,8 @@ internal sealed class SoundCatalog
   // TODO: Apparently HashSets aren't stable, i.e. this won't guarantee the same "first" entry each
   // time we call it with the same inputs. Fix this when I actually want to use multiple sounds
   // that would be passed into this function.
+
+
+  public IEnumerable<string> GetSortedList()
+    => Sounds.ToImmutableSortedSet();
 }
