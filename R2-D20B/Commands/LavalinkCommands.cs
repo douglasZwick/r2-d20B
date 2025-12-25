@@ -294,7 +294,7 @@ internal class LavalinkCommands(
     var messages = new List<DiscordMessageBuilder>();
     var message = new DiscordMessageBuilder();
     var description = string.IsNullOrWhiteSpace(prefix)
-      ? s_SoundListEmbedDescriptionPrefixed : s_SoundListEmbedDescription;
+      ? s_SoundListEmbedDescription : s_SoundListEmbedDescriptionPrefixed;
     var embed = new DiscordEmbedBuilder()
       .WithTitle(s_SoundListEmbedTitle)
       .WithDescription(string.Format(description, sortedSoundNames.Count()));
@@ -325,10 +325,20 @@ internal class LavalinkCommands(
     // The total fields added to the current embed.
     var fieldCount = 0;
 
+    var newBucket = true;
+
     // Enforces INVARIANT 1
     void FlushField(bool unconditionalFullFlush)
     {
       var fieldName = bucketName == '_' ? s_DefaultBucketName : bucketName.ToString();
+
+      if (!newBucket)
+      {
+        fieldName = ".";
+      }
+
+      newBucket = false;
+
       embed.AddField(fieldName, sb.ToString());
       ++fieldCount;
 
@@ -336,7 +346,8 @@ internal class LavalinkCommands(
         FlushEmbed(unconditionalFullFlush);
       
       sb.Clear();
-      
+      // Increment charCount to account for the field name
+      ++charCount;
     }
 
     // Enforces INVARIANT 2
@@ -365,7 +376,7 @@ internal class LavalinkCommands(
     {
       bucketName = bucketKey;
       bucketNameLength = 1;
-      charCount += bucketNameLength;
+      newBucket = true;
     }
 
     foreach (var soundName in sortedSoundNames)
