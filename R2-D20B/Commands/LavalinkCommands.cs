@@ -29,7 +29,8 @@ internal class LavalinkCommands(
   private static readonly string s_ExampleQuery = "reverb fart";
   private static readonly HashSet<string> s_HiddenPrefixes = new(StringComparer.OrdinalIgnoreCase)
     { "secret.", "music.", "r2.", };
-  private static readonly string s_SoundListEmbedTitle = "Sound List";
+  private static readonly string s_SoundListEmbedTitle =
+    "Sound List (Play These with `!play [soundName]`)";
   private static readonly string s_SoundListEmbedDescription =
     "[ Birt. ] Here are the {0} sounds in my Sounds folder: [ Bip. ]";
   private static readonly string s_SoundListEmbedDescriptionPrefixed =

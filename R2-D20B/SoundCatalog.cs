@@ -55,21 +55,35 @@ internal sealed class SoundCatalog
   /// </summary>
   private void PopulateCatalog()
   {
-    var rootFilePaths = Directory.EnumerateFiles(RootPath);
+    var rootPathGroups = Directory.EnumerateFiles(RootPath)
+      .Where(HasAllowedExtension)
+      .Select(f => (With: Path.GetFileName(f), Without: Path.GetFileNameWithoutExtension(f)))
+      .GroupBy(p => p.Without, StringComparer.OrdinalIgnoreCase);
     var sb = new StringBuilder();
     sb.AppendLine($"Adding sounds from {RootPath}:");
 
     var count = 0;
 
-    foreach (var filePath in rootFilePaths)
+    foreach (var group in rootPathGroups)
     {
-      var fileName = Path.GetFileName(filePath);
+      var groupContents = group.ToList();
 
-      if (!HasAllowedExtension(fileName)) continue;
-
-      sb.AppendLine($"  - Adding {fileName}...");
-      Sounds.Add(fileName);
-      ++count;
+      if (groupContents.Count > 1)
+      {
+        foreach (var (With, _) in groupContents)
+        {
+          sb.AppendLine($"  - Adding {With}...");
+          Sounds.Add(With);
+          ++count;
+        }
+      }
+      else
+      {
+        var without = groupContents[0].Without;
+        sb.AppendLine($"  - Adding {without}...");
+        Sounds.Add(without);
+        ++count;
+      }
     }
 
     if (sb.Length > 0)
