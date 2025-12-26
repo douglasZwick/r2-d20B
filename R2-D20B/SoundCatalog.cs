@@ -18,6 +18,8 @@ internal sealed class SoundCatalog
   /// </summary>
   private static readonly HashSet<string> s_AllowedExtensions =
     new(StringComparer.OrdinalIgnoreCase) { ".wav", ".ogg", ".mp3", };
+  private static readonly HashSet<string> s_HiddenPrefixes = 
+    new(StringComparer.OrdinalIgnoreCase) { "secret.", "music.", "r2.", };
 
   /// <summary>
   /// The path to the Sounds folder.
@@ -28,7 +30,10 @@ internal sealed class SoundCatalog
   /// All the sounds stored in the catalog, with extensions intact (base names only, not full
   /// paths). Multiple sounds with the same name but different extensions are permitted.
   /// </summary>
-  private HashSet<string> Sounds { get; } = new(StringComparer.OrdinalIgnoreCase);
+  private HashSet<string> Sounds { get; } = 
+    new(StringComparer.OrdinalIgnoreCase);
+  private Dictionary<string, List<string>> SoundsByBaseName { get; } =
+    new(StringComparer.OrdinalIgnoreCase);
 
   private ILogger<SoundCatalog> Logger { get; init; }
 
@@ -55,38 +60,29 @@ internal sealed class SoundCatalog
   /// </summary>
   private void PopulateCatalog()
   {
-    var rootPathGroups = Directory.EnumerateFiles(RootPath)
+    var rootPaths = Directory.EnumerateFiles(RootPath)
       .Where(HasAllowedExtension)
-      .Select(f => (With: Path.GetFileName(f), Without: Path.GetFileNameWithoutExtension(f)))
-      .GroupBy(p => p.Without, StringComparer.OrdinalIgnoreCase);
+      .Select(f => (BaseName: Path.GetFileNameWithoutExtension(f), FullName: Path.GetFileName(f)));
+    
     var sb = new StringBuilder();
     sb.AppendLine($"Adding sounds from {RootPath}:");
 
     var count = 0;
 
-    foreach (var group in rootPathGroups)
+    foreach (var (BaseName, FullName) in rootPaths)
     {
-      var groupContents = group.ToList();
-
-      if (groupContents.Count > 1)
-      {
-        foreach (var (With, _) in groupContents)
-        {
-          sb.AppendLine($"  - Adding {With}...");
-          Sounds.Add(With);
-          ++count;
-        }
-      }
+      sb.AppendLine($"  - Adding {FullName}...");
+      Sounds.Add(FullName);
+      
+      if (SoundsByBaseName.TryGetValue(BaseName, out var list))
+        list.Add(FullName);
       else
-      {
-        var without = groupContents[0].Without;
-        sb.AppendLine($"  - Adding {without}...");
-        Sounds.Add(without);
-        ++count;
-      }
+        SoundsByBaseName.Add(BaseName, [FullName]);
+
+      ++count;
     }
 
-    if (sb.Length > 0)
+    if (count > 0)
       Logger.LogInformation("{LoadedSounds}",
         sb.AppendLine($"- Finished adding {count} sound(s).").ToString());
     else
@@ -95,12 +91,12 @@ internal sealed class SoundCatalog
 
 
   /// <summary>
-  /// Checks whether the given file name has a valid sound file extension.
+  /// Checks whether the given path has a valid sound file extension.
   /// </summary>
-  /// <param name="fileName">The file name to check.</param>
+  /// <param name="path">The path to check.</param>
   /// <returns>True if it has an allowed extension, false otherwise.</returns>
-  private static bool HasAllowedExtension(string fileName)
-    => s_AllowedExtensions.Contains(Path.GetExtension(fileName));
+  private static bool HasAllowedExtension(string path)
+    => s_AllowedExtensions.Contains(Path.GetExtension(path));
 
 
   /// <summary>
@@ -118,37 +114,38 @@ internal sealed class SoundCatalog
 
   
   /// <summary>
-  /// Returns the absolute path to the sound requested by name. Searches by exact string first, and
-  /// then if that fails, searches by stripping any extensions on both the input and each entry in
-  /// the catalog, and then selects an entry from the matches. Currently it just takes the first one
-  /// in the matches container, but I might change that later.
+  /// Returns the absolute path to the sound requested by name.
   /// </summary>
   /// <param name="name">The sound name to search for.</param>
   /// <returns>The requested sound path, or null if it can't be found.</returns>
   public string? TryGetSoundPathByName(string name)
   {
-    if (string.IsNullOrWhiteSpace(name)) return null;
-    if (!IsValidFileName(name)) return null;
-
     name = name.Trim();
 
-    var soundName = string.Empty;
+    if (name.Length <= 0) return null;
+    if (!IsValidFileName(name)) return null;
 
-    if (!Sounds.TryGetValue(name, out soundName))
-    {
-      name = Path.ChangeExtension(name, null);
+    var fileName = TryGetSoundFileByName(name);
+    if (fileName is null) return null;
 
-      var candidates = Sounds.Where(entry => {
-        var key = Path.ChangeExtension(entry, null);
-        return string.Equals(name, key, StringComparison.OrdinalIgnoreCase);
-      }).ToList();
+    return Path.Combine(RootPath, fileName);
+  }
 
-      if (candidates.Count == 0) return null;
-      
-      soundName = PickCandidate(candidates, name);
-    }
 
-    return Path.Combine(RootPath, soundName);
+  /// <summary>
+  /// Returns the file name for the sound requested by name.
+  /// </summary>
+  /// <param name="name">The sound name to search for.</param>
+  /// <returns>The requested file name, or null if it can't be found.</returns>
+  private string? TryGetSoundFileByName(string name)
+  {
+    if (Sounds.Contains(name)) return name;
+    if (Path.HasExtension(name)) return null;
+
+    if (SoundsByBaseName.TryGetValue(name, out var variants))
+      return PickCandidate([.. variants.OrderBy(v => v, StringComparer.OrdinalIgnoreCase)], name);
+
+    return null;
   }
 
 
@@ -170,13 +167,47 @@ internal sealed class SoundCatalog
   /// <param name="candidates">The candidate entries that were found by query.</param>
   /// <param name="_">The name of the sound that was searched for. Discarded for now.</param>
   /// <returns>The selected candidate.</returns>
-  private static string PickCandidate(IEnumerable<string> candidates, string _)
-    => candidates.First();
-  // TODO: Apparently HashSets aren't stable, i.e. this won't guarantee the same "first" entry each
-  // time we call it with the same inputs. Fix this when I actually want to use multiple sounds
-  // that would be passed into this function.
+  private static string PickCandidate(List<string> candidates, string _)
+    => candidates[0];
 
 
-  public IEnumerable<string> GetSortedList()
-    => Sounds.ToImmutableSortedSet();
+  /// <summary>
+  /// Gets a sorted list of names of the sounds in the catalog, filtered to exclude any secrets.
+  /// </summary>
+  /// <returns>The sorted list.</returns>
+  public List<string> GetSortedList()
+  {
+    var output = new List<string>();
+
+    var sortedDictionary = SoundsByBaseName
+      .Where(kvp => !ShouldBeHidden(kvp.Key))
+      .ToImmutableSortedDictionary(StringComparer.OrdinalIgnoreCase);
+    
+    foreach (var kvp in sortedDictionary)
+    {
+      var variants = kvp.Value;
+
+      if (variants.Count <= 1)
+      {
+        output.Add(kvp.Key);
+        continue;
+      }
+
+      var sortedVariants = variants.OrderBy(v => v, StringComparer.OrdinalIgnoreCase);
+
+      foreach (var variant in sortedVariants)
+        output.Add(variant);
+    }
+
+    return output;
+  }
+
+
+  /// <summary>
+  /// Returns whether the input string starts with a hidden prefix.
+  /// </summary>
+  /// <param name="input">The string to check</param>
+  /// <returns>True if it do, false if it don't.</returns>
+  private static bool ShouldBeHidden(string input)
+    => s_HiddenPrefixes.Any(p => input.StartsWith(p, StringComparison.OrdinalIgnoreCase));
 }

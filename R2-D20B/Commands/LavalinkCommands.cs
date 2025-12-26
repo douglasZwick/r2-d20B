@@ -27,8 +27,6 @@ internal class LavalinkCommands(
 {
   private static readonly string s_ExampleUrl = "https://www.youtube.com/watch?v=9FLRHejWAo8";
   private static readonly string s_ExampleQuery = "reverb fart";
-  private static readonly HashSet<string> s_HiddenPrefixes = new(StringComparer.OrdinalIgnoreCase)
-    { "secret.", "music.", "r2.", };
   private static readonly string s_SoundListEmbedTitle =
     "Sound List (Play These with `!play [soundName]`)";
   private static readonly string s_SoundListEmbedDescription =
@@ -267,21 +265,32 @@ internal class LavalinkCommands(
     [RemainingText]
     string prefix = "")
   {
-    var prefixSpecified = !string.IsNullOrEmpty(prefix);
+    prefix = prefix.Trim();
 
-    var soundList = SoundCatalog.GetSortedList().Where(SecretFilter);
+    var prefixSpecified = prefix.Length > 0;
+
+    var soundList = SoundCatalog.GetSortedList();
 
     if (prefixSpecified)
-      soundList = soundList.Where(path => path.StartsWith(prefix,
-        StringComparison.OrdinalIgnoreCase));
+      soundList = [.. soundList.Where(path => path.StartsWith(prefix,
+        StringComparison.OrdinalIgnoreCase))];
+    
+    if (soundList.Count <= 0)
+    {
+      var messageStr = prefixSpecified
+        ? $"[ Merp. ] I don't have any sounds that start with {Formatter.InlineCode(prefix)}. [ Bink. ]"
+        : "[ Merp. ] I don't have any sounds in my Sounds folder right now. [ Bink. ]";
+      await ctx.RespondAsync(messageStr);
+      return;
+    }
 
     foreach (var message in CreateSoundListMessages(soundList, prefix))
       await ctx.RespondAsync(message);
   }
 
 
-  private IReadOnlyList<DiscordMessageBuilder> CreateSoundListMessages(
-    IEnumerable<string> sortedSoundNames, string prefix = "")
+  private static List<DiscordMessageBuilder> CreateSoundListMessages(
+    List<string> sortedSoundNames, string prefix = "")
   {
     const int MAX_CHARS_PER_MESSAGE = 6000;
     const int MAX_EMBEDS_PER_MESSAGE = 10;
@@ -445,24 +454,6 @@ internal class LavalinkCommands(
 
     return messages;
   }
-
-
-  /// <summary>
-  /// Returns whether the input string DOES NOT start with a hidden prefix.
-  /// </summary>
-  /// <param name="input">The string to check</param>
-  /// <returns>False if it do, true if it don't.</returns>
-  private static bool SecretFilter(string input)
-    => !s_HiddenPrefixes.Any(p => input.StartsWith(p, StringComparison.OrdinalIgnoreCase));
-
-
-  /// <summary>
-  /// Creates a string by joining each item in the given list wrapped individually in backticks.
-  /// </summary>
-  /// <param name="soundList">The list from which to create the string.</param>
-  /// <returns>The string so created.</returns>
-  private static string CreateSoundBucketString(IEnumerable<string> soundList)
-    => string.Join(" ", soundList.Where(SecretFilter).Select(Formatter.InlineCode));
 
 
   private static async ValueTask SetupHelper(CommandContext ctx)
