@@ -20,10 +20,10 @@ using Formatter = DSharpPlus.Formatter;
 namespace R2D20B.Commands;
 
 
-internal class LavalinkCommands(
+internal class AudioCommands(
   IAudioService audioService,
   SoundCatalog soundCatalog,
-  ILogger<LavalinkCommands> logger)
+  ILogger<AudioCommands> logger)
 {
   private static readonly string s_ExampleUrl = "https://www.youtube.com/watch?v=9FLRHejWAo8";
   private static readonly string s_ExampleLocalSoundName = "reverbfart";
@@ -38,7 +38,7 @@ internal class LavalinkCommands(
 
   private IAudioService AudioService { get; init; } = audioService;
   private SoundCatalog SoundCatalog { get; init; } = soundCatalog;
-  private ILogger<LavalinkCommands> Logger { get; init; } = logger;
+  private ILogger<AudioCommands> Logger { get; init; } = logger;
 
   
   private class Guards
