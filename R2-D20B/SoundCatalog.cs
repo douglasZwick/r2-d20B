@@ -19,7 +19,7 @@ internal sealed class SoundCatalog
   private static readonly HashSet<string> s_AllowedExtensions =
     new(StringComparer.OrdinalIgnoreCase) { ".wav", ".ogg", ".mp3", };
   private static readonly HashSet<string> s_HiddenPrefixes = 
-    new(StringComparer.OrdinalIgnoreCase) { "secret.", "music.", "r2.", };
+    new(StringComparer.OrdinalIgnoreCase) { "secret.", /*"music.", "r2.",*/ };
 
   /// <summary>
   /// The path to the Sounds folder.
@@ -140,7 +140,6 @@ internal sealed class SoundCatalog
   private string? TryGetSoundFileByName(string name)
   {
     if (Sounds.Contains(name)) return name;
-    if (Path.HasExtension(name)) return null;
 
     if (SoundsByBaseName.TryGetValue(name, out var variants))
       return PickCandidate([.. variants.OrderBy(v => v, StringComparer.OrdinalIgnoreCase)], name);

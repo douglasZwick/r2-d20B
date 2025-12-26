@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.Text;
 using DSharpPlus.Commands;
 using DSharpPlus.Commands.ArgumentModifiers;
@@ -12,6 +11,7 @@ using Lavalink4NET;
 using Lavalink4NET.Players;
 using Lavalink4NET.Players.Queued;
 using Lavalink4NET.Rest.Entities.Tracks;
+using Lavalink4NET.Tracks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Formatter = DSharpPlus.Formatter;
@@ -26,6 +26,7 @@ internal class LavalinkCommands(
   ILogger<LavalinkCommands> logger)
 {
   private static readonly string s_ExampleUrl = "https://www.youtube.com/watch?v=9FLRHejWAo8";
+  private static readonly string s_ExampleLocalSoundName = "reverbfart";
   private static readonly string s_ExampleQuery = "reverb fart";
   private static readonly string s_SoundListEmbedTitle =
     "Sound List (Play These with `!play [soundName]`)";
@@ -59,13 +60,14 @@ internal class LavalinkCommands(
 
 
     public static async ValueTask<bool> RequireUrlOrQueryAsync(
-      CommandContext ctx, string? audioString, TrackSearchMode searchMode)
+      CommandContext ctx, string? audioString, TrackSearchMode? searchMode)
     {
       if (string.IsNullOrWhiteSpace(audioString))
       {
-        var errorMessage = searchMode == TrackSearchMode.None
+        var errorMessage = searchMode is null || searchMode == TrackSearchMode.None
           ? "This command expects a YouTube URL as an argument, "
-            + $"like this: `!play {s_ExampleUrl}`"
+            + $"like this: `!play {s_ExampleUrl}`, or a local sound name, "
+            + $"like this: `!play {s_ExampleLocalSoundName}"
           : "This command expects a YouTube search query as an argument, "
             + $"like this: `!play {s_ExampleQuery}`";
         errorMessage = $"[ Zeep. ] {errorMessage} [ Morp. ]";
@@ -185,7 +187,15 @@ internal class LavalinkCommands(
     string soundNameOrUrl = "")
   {
     await SetupHelper(ctx);
-    var searchMode = TrackSearchMode.None;
+
+    var userInput = soundNameOrUrl;
+    var searchMode = null as TrackSearchMode?;
+
+    var localFilePath = SoundCatalog.TryGetSoundPathByName(soundNameOrUrl);
+    if (localFilePath is null)
+      searchMode = TrackSearchMode.None;
+    else
+      soundNameOrUrl = localFilePath.ToString();
 
     if (!await Guards.RequireUrlOrQueryAsync(ctx, soundNameOrUrl, searchMode)) return;
     if (!await Guards.RequireGuildAsync(ctx)) return;
@@ -201,7 +211,7 @@ internal class LavalinkCommands(
       $"Expected {result.GetType().Name}.{nameof(result.Player)} not to be null, but it was. "
         + $"Result status: {result.Status}");
     
-    await PlayHelper(ctx, soundNameOrUrl, searchMode, result);
+    await PlayHelper(ctx, userInput, soundNameOrUrl, searchMode, result);
   }
 
 
@@ -230,7 +240,7 @@ internal class LavalinkCommands(
       $"Expected {result.GetType().Name}.{nameof(result.Player)} not to be null, but it was. "
         + $"Result status: {result.Status}");
     
-    await PlayHelper(ctx, query, searchMode, result);
+    await PlayHelper(ctx, query, query, searchMode, result);
   }
 
 
@@ -463,22 +473,47 @@ internal class LavalinkCommands(
 
 
   private async ValueTask PlayHelper(
-    CommandContext ctx, string audioString,
-    TrackSearchMode searchMode, PlayerRetrieveResult result)
+    CommandContext ctx, string userInput, string audioString,
+    TrackSearchMode? searchModeOrNull, PlayerRetrieveResult result)
   {
     if (result.Player is null) throw new InvalidOperationException(
       $"Expected {result.GetType().Name}.{nameof(result.Player)} not to be null, but it was. "
         + $"Result status: {result.Status}");
 
-    var track = await AudioService.Tracks
-      .LoadTrackAsync(audioString, searchMode)
-      .ConfigureAwait(false);
+    LavalinkTrack? track;
+
+    Logger.LogInformation("Requested: {UserInput} | File: {File}", userInput, audioString);
+
+    if (searchModeOrNull is TrackSearchMode searchMode)
+    {
+      track = await AudioService.Tracks
+        .LoadTrackAsync(
+          audioString,
+          searchMode)
+        .ConfigureAwait(false);
+    }
+    else
+    {
+      var loadOptions = new TrackLoadOptions(
+        SearchMode: TrackSearchMode.None,
+        SearchBehavior: StrictSearchBehavior.Passthrough);
+
+      track = await AudioService.Tracks
+        .LoadTrackAsync(audioString, loadOptions)
+        .ConfigureAwait(false);
+    }
     
     if (track is null)
     {
-      var errorMessage = searchMode == TrackSearchMode.None
-        ? $"[ Zeep. ] I couldn't find a video with URL {audioString}. [ Morp. ]"
-        : $"[ Zeep. ] No search results for `{audioString}`. [ Morp. ]";
+      var errorMessage = $"[ Zeep. ] I couldn't find the local file {userInput}. [ Morp. ]";
+
+      if (searchModeOrNull == TrackSearchMode.None)
+        errorMessage =
+          $"[ Zeep. ] I couldn't find a video with URL {audioString}. [ Morp. ]";
+      else if (searchModeOrNull == TrackSearchMode.YouTube)
+        errorMessage =
+          $"[ Zeep. ] No search results for `{audioString}`. [ Morp. ]";
+
       var errorResponse = new DiscordFollowupMessageBuilder()
         .WithContent(errorMessage)
         .AsEphemeral();
@@ -489,13 +524,12 @@ internal class LavalinkCommands(
     }
 
     var position = await result.Player.PlayAsync(track).ConfigureAwait(false);
-    var name = track.Uri?.ToString();
-    var successMessage = position is 0
-      ? $"[ Beep. ] Added to queue: {name} [ Boop. ]"
-      : $"[ Beep. ] Now playing: {name} [ Boop. ]";
+
+    var name = searchModeOrNull is null ? userInput : track.Uri?.ToString();
+    var successMessage = $"[ Beep. ] Now playing: {name} [ Boop. ]";
 
     await ctx.EditResponseAsync(new DiscordFollowupMessageBuilder()
-      .WithContent(successMessage)).ConfigureAwait(false);
+      .WithContent(successMessage).AsEphemeral()).ConfigureAwait(false);
     
     if (ctx is TextCommandContext textCtx)
       await textCtx.Message.ModifyEmbedSuppressionAsync(true);
