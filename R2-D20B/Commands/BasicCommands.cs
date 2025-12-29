@@ -253,5 +253,22 @@ namespace R2D20B.Commands
       await ctx.RespondAsync(
         $"[ Beep. ] I've been running for {UptimeService.UptimeFormatted}. [ Boop. ]");
     }
+
+
+    [Command("dance")]
+    [AutoDelete]
+    [Description("Makes me convert the given text into dancing emoji.")]
+    public async ValueTask Dance(CommandContext ctx,
+      [Description("The text to make dance.")]
+      string text = "")
+    {
+      var sb = new StringBuilder();
+
+      foreach (var textChar in text)
+        if (EmojiCatalog.DanceEmoji.TryGetValue(textChar, out var dancingChar))
+          sb.Append(dancingChar);
+
+      await ctx.RespondAsync(sb.ToString());
+    }
   }
 }
