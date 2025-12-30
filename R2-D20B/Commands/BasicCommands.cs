@@ -264,9 +264,24 @@ namespace R2D20B.Commands
     {
       var sb = new StringBuilder();
 
-      foreach (var textChar in text)
+      foreach (var textChar in text.ToUpperInvariant())
         if (EmojiCatalog.DanceEmoji.TryGetValue(textChar, out var dancingChar))
           sb.Append(dancingChar);
+
+      await ctx.RespondAsync(sb.ToString());
+    }
+
+
+    [Command("dancelist")]
+    [Description("Shows all the emoji I have registered in my DanceEmoji dictionary.")]
+    public async ValueTask DanceList(CommandContext ctx)
+    {
+      var sb = new StringBuilder();
+
+      foreach (var entry in EmojiCatalog.DanceEmoji)
+        sb.Append($"{Formatter.InlineCode(entry.Key.ToString())} : {entry.Value}        ");
+
+      if (sb.Length <= 0) return;
 
       await ctx.RespondAsync(sb.ToString());
     }
