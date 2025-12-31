@@ -3,6 +3,8 @@ namespace R2D20B;
 
 internal sealed class EmojiCatalog
 {
+  public static string Empty { get; } = "<:blank:1455741196474519789>";
+
   public static string Clean { get; } = "<a:clean:1455055703038234768>";
   public static string Cleanish { get; } = "<a:cleanish:1455055704606900356>";
   public static string NotClean { get; } = "<:notclean:1455055705995350038>";
@@ -53,7 +55,7 @@ internal sealed class EmojiCatalog
 
   public static Dictionary<char, string> DanceEmoji { get; } = new()
   {
-    { ' ', "    " },
+    { ' ', Empty },
 
     { '0', Dance0 },
     { '1', Dance1 },

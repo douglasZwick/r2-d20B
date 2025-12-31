@@ -7,6 +7,7 @@ using DSharpPlus.Entities;
 using R2D20B.Attributes;
 using DSharpPlus.Commands.Trees.Metadata;
 using Microsoft.Extensions.Logging;
+using DSharpPlus.Commands.ArgumentModifiers;
 
 
 namespace R2D20B.Commands
@@ -260,6 +261,7 @@ namespace R2D20B.Commands
     [Description("Makes me convert the given text into dancing emoji.")]
     public async ValueTask Dance(CommandContext ctx,
       [Description("The text to make dance.")]
+      [RemainingText]
       string text = "")
     {
       var sb = new StringBuilder();
@@ -267,6 +269,14 @@ namespace R2D20B.Commands
       foreach (var textChar in text.ToUpperInvariant())
         if (EmojiCatalog.DanceEmoji.TryGetValue(textChar, out var dancingChar))
           sb.Append(dancingChar);
+
+      if (sb.Length <= 0)
+      {
+        var str = Formatter.InlineCode(text);
+        await ctx.RespondAsync(
+          $"[ Zip bip. ] I tried to make {str} dance, but I just couldn't do it. [ Plibt. ]");
+        return;
+      }
 
       await ctx.RespondAsync(sb.ToString());
     }
