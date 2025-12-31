@@ -25,6 +25,8 @@ namespace R2D20B.Commands
     private UptimeService UptimeService { get; init; } = uptimeService;
     private ILogger<BasicCommands> Logger { get; init; } = logger;
 
+    private Random RNG { get; } = new();
+
 
     private static bool CommandHasAttribute<T>(Command command)
       where T : Attribute
@@ -58,6 +60,7 @@ namespace R2D20B.Commands
       [Description("The stuff to repeat.")]
       params string[] args)
     {
+      await ctx.Channel.TriggerTypingAsync();
       // TODO: Possssssibly use a StringBuilder here
 
       var message = "[ Meep. ]" + Environment.NewLine;
@@ -75,7 +78,7 @@ namespace R2D20B.Commands
       [Description("The role to check.")]
       string roleName)
     {
-      if (ctx is null) return;
+      await ctx.Channel.TriggerTypingAsync();
 
       if (ctx.Guild is null)
       {
@@ -135,7 +138,7 @@ namespace R2D20B.Commands
       [Description("The member to check.")]
       string memberName)
     {
-      if (ctx is null) return;
+      await ctx.Channel.TriggerTypingAsync();
 
       if (ctx.Guild is null)
       {
@@ -189,6 +192,7 @@ namespace R2D20B.Commands
       [Description("The URL to which to send the request.")]
       string url)
     {
+      await ctx.Channel.TriggerTypingAsync();
       var urlInfo = new UrlInfo(url);
 
       if (!urlInfo.IsValid)
@@ -223,8 +227,6 @@ namespace R2D20B.Commands
     [Description("Lists the commands that I can execute.")]
     public async ValueTask Help(CommandContext ctx)
     {
-      if (ctx is null) return;
-
       var commands = Registry.Commands.Commands.Values;
       var count = commands.Count();
 
@@ -264,6 +266,7 @@ namespace R2D20B.Commands
       [RemainingText]
       string text = "")
     {
+      await ctx.Channel.TriggerTypingAsync();
       var sb = new StringBuilder();
 
       foreach (var textChar in text.ToUpperInvariant())
@@ -286,6 +289,7 @@ namespace R2D20B.Commands
     [Description("Shows all the emoji I have registered in my DanceEmoji dictionary.")]
     public async ValueTask DanceList(CommandContext ctx)
     {
+      await ctx.Channel.TriggerTypingAsync();
       var sb = new StringBuilder();
 
       foreach (var entry in EmojiCatalog.DanceEmoji)
@@ -294,6 +298,44 @@ namespace R2D20B.Commands
       if (sb.Length <= 0) return;
 
       await ctx.RespondAsync(sb.ToString());
+    }
+
+
+    
+    public async ValueTask Clean(CommandContext ctx)
+    {
+      await ctx.Channel.TriggerTypingAsync();
+
+      const int MAX_LARGE_EMOJI = 30;
+      var emojiPerRow = 10;
+      var rowsPerMessage = MAX_LARGE_EMOJI / emojiPerRow;
+      var messagesPerClean = 6;
+
+      var notCleanChance = 1.0 / 50;  // probability of getting :notclean: vs others
+      var cleanishChance = 1.0 / 2;  // probability of getting :cleanish: vs :clean:
+
+      var sb = new StringBuilder();
+      var messages = new List<DiscordMessageBuilder>();
+
+      bool ShouldUseNotClean() => RNG.NextDouble() < notCleanChance;
+      bool ShouldUseCleanish() => RNG.NextDouble() < cleanishChance;
+
+      for (var messageIndex = 0; messageIndex < messagesPerClean; ++messageIndex)
+      {
+        for (var rowIndex = 0; rowIndex < rowsPerMessage; ++rowIndex)
+        {
+          for (var emojiIndex = 0; emojiIndex < emojiPerRow; ++emojiIndex)
+          {
+            if (ShouldUseNotClean())
+            {
+              
+            }
+          }
+        }
+      }
+
+      foreach (var message in messages)
+        await ctx.RespondAsync(message);
     }
   }
 }
