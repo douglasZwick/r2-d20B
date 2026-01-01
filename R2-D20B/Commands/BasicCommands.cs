@@ -49,7 +49,7 @@ namespace R2D20B.Commands
     [Description("Just used to test the AutoDelete attribute.")]
     public async ValueTask AutoDeleteTest(CommandContext ctx)
     {
-      await ctx.RespondAsync("[ Beep boop. ] Command message deleted. " +
+      await ctx.Channel.SendMessageAsync("[ Beep boop. ] Command message deleted. " +
         "[ Meep. ]");
     }
 
@@ -281,7 +281,7 @@ namespace R2D20B.Commands
         return;
       }
 
-      await ctx.RespondAsync(sb.ToString());
+      await ctx.Channel.SendMessageAsync(sb.ToString());
     }
 
 
@@ -301,41 +301,51 @@ namespace R2D20B.Commands
     }
 
 
-    
+    [Command("clean")]
+    [TextAlias("penguins")]
+    [Description("Sends in the penguins.")]
     public async ValueTask Clean(CommandContext ctx)
     {
       await ctx.Channel.TriggerTypingAsync();
 
       const int MAX_LARGE_EMOJI = 30;
-      var emojiPerRow = 10;
-      var rowsPerMessage = MAX_LARGE_EMOJI / emojiPerRow;
-      var messagesPerClean = 6;
+      const int EMOJI_PER_ROW = 10;
+      const int ROWS_PER_MESSAGE = MAX_LARGE_EMOJI / EMOJI_PER_ROW;
+      const int MESSAGES_PER_CLEAN = 6;
 
-      var notCleanChance = 1.0 / 50;  // probability of getting :notclean: vs others
-      var cleanishChance = 1.0 / 2;  // probability of getting :cleanish: vs :clean:
+      var messageSb = new StringBuilder();
+      var rowSb = new StringBuilder();
+      var messages = new List<string>();
 
-      var sb = new StringBuilder();
-      var messages = new List<DiscordMessageBuilder>();
+      var notCleanChance = 0.02; // probability of getting :notclean: vs others
+      var cleanishChance = 0.7;  // probability of getting :cleanish: vs :clean:
 
       bool ShouldUseNotClean() => RNG.NextDouble() < notCleanChance;
       bool ShouldUseCleanish() => RNG.NextDouble() < cleanishChance;
+      string GetNextEmoji() =>
+        ShouldUseNotClean()
+        ? EmojiCatalog.NotClean
+        : ShouldUseCleanish()
+          ? EmojiCatalog.Cleanish
+          : EmojiCatalog.Clean;
 
-      for (var messageIndex = 0; messageIndex < messagesPerClean; ++messageIndex)
+      for (var messageIndex = 0; messageIndex < MESSAGES_PER_CLEAN; ++messageIndex)
       {
-        for (var rowIndex = 0; rowIndex < rowsPerMessage; ++rowIndex)
+        for (var rowIndex = 0; rowIndex < ROWS_PER_MESSAGE; ++rowIndex)
         {
-          for (var emojiIndex = 0; emojiIndex < emojiPerRow; ++emojiIndex)
-          {
-            if (ShouldUseNotClean())
-            {
-              
-            }
-          }
+          for (var emojiIndex = 0; emojiIndex < EMOJI_PER_ROW; ++emojiIndex)
+            rowSb.Append(GetNextEmoji());
+
+          messageSb.AppendLine(rowSb.ToString());
+          rowSb.Clear();
         }
+
+        messages.Add(messageSb.ToString());
+        messageSb.Clear();
       }
 
       foreach (var message in messages)
-        await ctx.RespondAsync(message);
+        await ctx.Channel.SendMessageAsync(message);
     }
   }
 }
