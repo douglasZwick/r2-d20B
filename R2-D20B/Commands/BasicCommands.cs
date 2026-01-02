@@ -291,16 +291,16 @@ internal class BasicCommands(
       if (EmojiCatalog.DanceEmoji.TryGetValue(textChar, out var dancingChar))
         sb.Append(dancingChar);
 
-    if (sb.Length <= 0)
-    {
-      var str = Formatter.InlineCode(text);
-      await ctx.RespondAsync(
-        $"[ Zip bip. ] I tried to make {str} dance, but I just couldn't do it. [ Plibt. ]");
-      return;
-    }
+      if (sb.Length <= 0)
+      {
+        var str = Formatter.InlineCode(text);
+        await ctx.Channel.SendMessageAsync(
+          $"[ Zip bip. ] I tried to make {str} dance, but I just couldn't do it. [ Plibt. ]");
+        return;
+      }
 
-    await ctx.Channel.SendMessageAsync(sb.ToString());
-  }
+      await ctx.Channel.SendMessageAsync(sb.ToString());
+    }
 
 
   [Command("dancelist")]
@@ -320,8 +320,9 @@ internal class BasicCommands(
 
 
   [Command("clean")]
-  [TextAlias("penguins")]
   [Description("Sends in the penguins.")]
+  [TextAlias("penguins")]
+  [AutoDelete]
   public async ValueTask Clean(CommandContext ctx)
   {
     await ctx.Channel.TriggerTypingAsync();
@@ -331,21 +332,23 @@ internal class BasicCommands(
     const int ROWS_PER_MESSAGE = MAX_LARGE_EMOJI / EMOJI_PER_ROW;
     const int MESSAGES_PER_CLEAN = 6;
 
+    const double NOTCLEAN_CHANCE = 0.02;  // probability of getting :notclean: vs others
+    const double CLEANISH_CHANCE = 0.70;  // probability of getting :cleanish: vs :clean:
+
+    var messages = new List<string>();
     var messageSb = new StringBuilder();
     var rowSb = new StringBuilder();
-    var messages = new List<string>();
 
-    var notCleanChance = 0.02; // probability of getting :notclean: vs others
-    var cleanishChance = 0.7;  // probability of getting :cleanish: vs :clean:
-
-    bool ShouldUseNotClean() => RNG.NextDouble() < notCleanChance;
-    bool ShouldUseCleanish() => RNG.NextDouble() < cleanishChance;
+    bool ShouldUseNotClean() =>
+      RNG.NextDouble() < NOTCLEAN_CHANCE;
+    bool ShouldUseCleanish() =>
+      RNG.NextDouble() < CLEANISH_CHANCE;
     string GetNextEmoji() =>
       ShouldUseNotClean()
       ? EmojiCatalog.NotClean
-      : ShouldUseCleanish()
+      : (ShouldUseCleanish()
         ? EmojiCatalog.Cleanish
-        : EmojiCatalog.Clean;
+        : EmojiCatalog.Clean);
 
     for (var messageIndex = 0; messageIndex < MESSAGES_PER_CLEAN; ++messageIndex)
     {
@@ -365,20 +368,4 @@ internal class BasicCommands(
     foreach (var message in messages)
       await ctx.Channel.SendMessageAsync(message);
   }
-
-
-
-  // public async ValueTask Spinee(CommandContext ctx,
-  
-  //   int? messageIndex)
-  // {
-  //   if (messageIndex is null)
-  //   {
-  //     await ctx.Channel.SendMessageAsync(EmojiCatalog.Spinee);
-  //     return;
-  //   }
-
-  //   var messages = await ctx.Channel.GetMessagesAsync(messageIndex.Value + 1).ToListAsync();
-  //   messages.Last().CreateReactionAsync()
-  // }
 }
