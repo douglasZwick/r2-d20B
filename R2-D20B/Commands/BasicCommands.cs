@@ -8,6 +8,7 @@ using R2D20B.Attributes;
 using DSharpPlus.Commands.Trees.Metadata;
 using Microsoft.Extensions.Logging;
 using DSharpPlus.Commands.ArgumentModifiers;
+using DSharpPlus.Commands.ContextChecks;
 
 
 namespace R2D20B.Commands;
@@ -33,6 +34,21 @@ internal class BasicCommands(
     where T : Attribute
   {
     return command.Attributes.OfType<T>().Any();
+  }
+
+
+  [Command("test")]
+  [Description("For internal use only.")]
+  [AutoDelete][Secret][RequirePermissions(DiscordPermission.UseExternalApps)]
+  public async ValueTask OutputTest(CommandContext ctx, int messageIndex)
+  {
+    var messages = await ctx.Channel.GetMessagesAsync(messageIndex + 1).ToListAsync();
+    var sb = new StringBuilder();
+
+    foreach (var message in messages)
+      sb.AppendLine(message.Content);
+
+    await ctx.Channel.SendMessageAsync(sb.ToString());
   }
 
 
@@ -228,7 +244,8 @@ internal class BasicCommands(
   [Description("Lists the commands that I can execute.")]
   public async ValueTask Help(CommandContext ctx)
   {
-    var commands = Registry.Commands.Commands.Values;
+    var commands = Registry.Commands.Commands.Values
+      .Where(c => !CommandHasAttribute<SecretAttribute>(c));
     var count = commands.Count();
 
     var embedBuilder = new DiscordEmbedBuilder()
@@ -348,4 +365,20 @@ internal class BasicCommands(
     foreach (var message in messages)
       await ctx.Channel.SendMessageAsync(message);
   }
+
+
+
+  // public async ValueTask Spinee(CommandContext ctx,
+  
+  //   int? messageIndex)
+  // {
+  //   if (messageIndex is null)
+  //   {
+  //     await ctx.Channel.SendMessageAsync(EmojiCatalog.Spinee);
+  //     return;
+  //   }
+
+  //   var messages = await ctx.Channel.GetMessagesAsync(messageIndex.Value + 1).ToListAsync();
+  //   messages.Last().CreateReactionAsync()
+  // }
 }

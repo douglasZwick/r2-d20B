@@ -53,6 +53,8 @@ internal sealed class EmojiCatalog
   public static string DanceY { get; } = "<a:Ydance:1455032201635823808>";
   public static string DanceZ { get; } = "<a:Zdance:1455032202533540108>";
 
+  public static string Spinee { get; } = "<a:SPINee:1432189642584887379>";
+
   public static Dictionary<char, string> DanceEmoji { get; } = new()
   {
     { ' ', Empty },
