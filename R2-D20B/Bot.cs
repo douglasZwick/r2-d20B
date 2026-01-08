@@ -8,17 +8,20 @@ namespace R2D20B;
 
 internal class Bot(
   DiscordClient client,
+  IHostEnvironment hostEnvironment,
   SoundCatalog soundCatalog,
   UptimeService uptimeService) : IHostedService
 {
-  private DiscordClient Client { get; init; } = client;
+  private DiscordClient Client { get; } = client;
+  private IHostEnvironment HostEnvironment { get; } = hostEnvironment;
   private readonly SoundCatalog _sc = soundCatalog;
   private readonly UptimeService _us = uptimeService;
 
 
   public Task StartAsync(CancellationToken cancellationToken)
   {
-    var status = new DiscordActivity("Ligma", DiscordActivityType.Playing);
+    var statusStr = HostEnvironment.IsDevelopment() ? "Dev" : "Ligma";
+    var status = new DiscordActivity(statusStr, DiscordActivityType.Playing);
     return Client.ConnectAsync(status, DiscordUserStatus.Online);
   }
 

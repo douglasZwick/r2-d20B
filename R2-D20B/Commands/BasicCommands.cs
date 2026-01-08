@@ -9,6 +9,7 @@ using DSharpPlus.Commands.Trees.Metadata;
 using Microsoft.Extensions.Logging;
 using DSharpPlus.Commands.ArgumentModifiers;
 using DSharpPlus.Commands.ContextChecks;
+using Microsoft.Extensions.Hosting;
 
 
 namespace R2D20B.Commands;
@@ -18,14 +19,16 @@ internal class BasicCommands(
   CommandRegistry registry,
   HttpClient httpClient,
   UptimeService uptimeService,
+  IHostEnvironment hostEnvironment,
   ILogger<BasicCommands> logger)
 {
   static private readonly int s_HttpBodySnippetLength = 500;
 
-  private CommandRegistry Registry { get; init; } = registry;
-  private HttpClient HttpClient { get; init; } = httpClient;
-  private UptimeService UptimeService { get; init; } = uptimeService;
-  private ILogger<BasicCommands> Logger { get; init; } = logger;
+  private CommandRegistry Registry { get; } = registry;
+  private HttpClient HttpClient { get; } = httpClient;
+  private UptimeService UptimeService { get; } = uptimeService;
+  private IHostEnvironment HostEnvironment { get; } = hostEnvironment;
+  private ILogger<BasicCommands> Logger { get; } = logger;
 
   private Random RNG { get; } = new();
 
@@ -40,15 +43,19 @@ internal class BasicCommands(
   [Command("test")]
   [Description("For internal use only.")]
   [AutoDelete][Secret][RequirePermissions(DiscordPermission.UseExternalApps)]
-  public async ValueTask OutputTest(CommandContext ctx, int messageIndex)
+  public async ValueTask OutputTest(CommandContext ctx)
   {
-    var messages = await ctx.Channel.GetMessagesAsync(messageIndex + 1).ToListAsync();
-    var sb = new StringBuilder();
+    await ctx.Channel.SendMessageAsync("R2-Dev speaking");
+  }
 
-    foreach (var message in messages)
-      sb.AppendLine(message.Content);
-
-    await ctx.Channel.SendMessageAsync(sb.ToString());
+  
+  [Command("env")]
+  [Description("Gets which .NET environment I'm running in right now.")]
+  [AutoDelete][Secret][RequirePermissions(DiscordPermission.UseExternalApps)]
+  public async ValueTask GetEnvironment(CommandContext ctx)
+  {
+    var env = HostEnvironment.EnvironmentName;
+    await ctx.RespondAsync($"[ Doop. ] I'm running in my {env} environment. [ Melp. ]");
   }
 
 

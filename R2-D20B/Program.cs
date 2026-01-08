@@ -16,6 +16,8 @@ internal class Program
 {
   static async Task Main(string[] args)
   {
+    Console.WriteLine("Bootstrapping R2-D20...");
+
     var builder = Host.CreateApplicationBuilder(args);
 
     //////////////////// DEPENDENCY INJECTION ////////////////////
@@ -46,7 +48,7 @@ internal class Program
     /// Discord Client / Commands / Event Connections
     /// 
     //////
-    
+
     builder.Services.AddDiscordClient(BotConfig.GetToken(), DiscordIntents.All);
     builder.Services.AddCommandsExtension((sp, commands) =>
     {
@@ -110,6 +112,9 @@ internal class Program
     var host = builder.Build();
     // TODO: Look into whether I can hook the events via the client somewhere around here,
     //   rather than via the lambda-within-lambda approach above
+
+    var hostEnvironment = host.Services.GetRequiredService<IHostEnvironment>();
+    Console.WriteLine($"Running in {hostEnvironment.EnvironmentName}...");
 
     await host.RunAsync();
   }

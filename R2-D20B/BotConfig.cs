@@ -5,16 +5,15 @@ internal class BotConfig
 {
   public static string GetToken()
   {
-    var token = Environment.GetEnvironmentVariable("DISCORD_TOKEN");
-
-    if (string.IsNullOrWhiteSpace(token))
-      throw new InvalidOperationException(
-        "Discord bot token not configured. Set the DISCORD_TOKEN " +
-        "environment variable to the token value and try again."
-      );
-      
-    return token;
+    var env = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT");
+    var tokenName = string.Equals(env, "Development", StringComparison.OrdinalIgnoreCase)
+      ? "DISCORD_TOKEN_DEV" : "DISCORD_TOKEN_PROD";
     
+    return Environment.GetEnvironmentVariable(tokenName)
+      ?? throw new InvalidOperationException(
+        $"Discord bot token not configured. Set the {tokenName} " +
+        "environment variable to the token value and try again.");
+        
     // TODO: when I have this hosted on GitHub, set up its environment
     //   appropriately
   }
