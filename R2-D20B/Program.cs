@@ -40,6 +40,7 @@ internal class Program
     builder.Services.AddSingleton<UrlHandlingDispatcher>();
     builder.Services.AddSingleton<IUrlHandler, TwitterUrlHandler>();
     builder.Services.AddSingleton<IUrlHandler, InstagramUrlHandler>();
+    builder.Services.AddSingleton<IUrlHandler, TikTokUrlHandler>();
     builder.Services.AddSingleton<CommandRegistry>();
     builder.Services.AddSingleton<UptimeService>();
 
