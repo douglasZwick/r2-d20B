@@ -6,13 +6,16 @@ using DSharpPlus.EventArgs;
 namespace R2D20B;
 
 
-internal sealed class GatewayEventHandlers(UrlHandlingDispatcher dispatcher)
+internal sealed class GatewayEventHandlers(
+  UrlHandlingDispatcher dispatcher,
+  EmojiCatalog emojiCatalog)
 {
   static public ulong BotTestingChannelId { get; private set; }
   private static readonly string s_BotTestingChannelName = "bot-testing";
   // private readonly bool m_TestingChannelOnly = true;
 
   private UrlHandlingDispatcher Dispatcher { get; init; } = dispatcher;
+  private EmojiCatalog Catalog { get; } = emojiCatalog;
 
   public DiscordGuild? DebugGuild { get; private set; }
 
@@ -29,7 +32,14 @@ internal sealed class GatewayEventHandlers(UrlHandlingDispatcher dispatcher)
   public async Task OnGuildDownloadCompleted(DiscordClient client,
     GuildDownloadCompletedEventArgs e)
   {
-    if (!e.Guilds.TryGetValue(BotConfig.GetDebugGuildId(), out DiscordGuild? guild)) return;
+    BotTestingChannelSetup(e);
+    await EmojiSetupAsync(client);
+  }
+
+
+  private void BotTestingChannelSetup(GuildDownloadCompletedEventArgs e)
+  {
+    if (!e.Guilds.TryGetValue(EnvironmentInterface.GetDebugGuildId(), out DiscordGuild? guild)) return;
 
     DebugGuild = guild;
     var botTestingChannel = guild.Channels.Values.FirstOrDefault(
@@ -38,5 +48,14 @@ internal sealed class GatewayEventHandlers(UrlHandlingDispatcher dispatcher)
     if (botTestingChannel is null) return;
 
     BotTestingChannelId = botTestingChannel.Id;
+  }
+
+
+  private async Task EmojiSetupAsync(DiscordClient client)
+  {
+    var appEmojis = await client.GetApplicationEmojisAsync();
+    
+    foreach (var emoji in appEmojis)
+      Catalog.Register(emoji.Name, emoji);
   }
 }

@@ -24,7 +24,7 @@ internal class Program
     
     //////
     /// 
-    /// App Services
+    /// App Services / Settings
     /// 
     //////
     
@@ -43,6 +43,8 @@ internal class Program
     builder.Services.AddSingleton<IUrlHandler, TikTokUrlHandler>();
     builder.Services.AddSingleton<CommandRegistry>();
     builder.Services.AddSingleton<UptimeService>();
+    builder.Services.AddSingleton<EmojiCatalog>();
+    builder.Services.AddSingleton<BotSettings>();
 
     //////
     /// 
@@ -50,7 +52,7 @@ internal class Program
     /// 
     //////
 
-    builder.Services.AddDiscordClient(BotConfig.GetToken(), DiscordIntents.All);
+    builder.Services.AddDiscordClient(EnvironmentInterface.GetToken(), DiscordIntents.All);
     builder.Services.AddCommandsExtension((sp, commands) =>
     {
       sp.GetRequiredService<CommandRegistry>().Initialize(commands);
@@ -81,7 +83,7 @@ internal class Program
           $"Lavalink setting '{key}' is missing from appsettings.json.");
 
       config.BaseAddress = new Uri(Require(section, "BaseAddress"));
-      config.Passphrase = BotConfig.GetLavalinkServerPassword();
+      config.Passphrase = EnvironmentInterface.GetLavalinkServerPassword();
       config.ReadyTimeout = TimeSpan.FromSeconds(30);
     });
     builder.Services.AddOptions<SoundOptions>()

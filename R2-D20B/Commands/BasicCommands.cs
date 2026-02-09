@@ -19,7 +19,9 @@ internal class BasicCommands(
   CommandRegistry registry,
   HttpClient httpClient,
   UptimeService uptimeService,
+  EmojiCatalog emojiCatalog,
   IHostEnvironment hostEnvironment,
+  BotSettings settings,
   ILogger<BasicCommands> logger)
 {
   static private readonly int s_HttpBodySnippetLength = 500;
@@ -27,7 +29,9 @@ internal class BasicCommands(
   private CommandRegistry Registry { get; } = registry;
   private HttpClient HttpClient { get; } = httpClient;
   private UptimeService UptimeService { get; } = uptimeService;
+  private EmojiCatalog Catalog { get; } = emojiCatalog;
   private IHostEnvironment HostEnvironment { get; } = hostEnvironment;
+  private BotSettings Settings { get; } = settings;
   private ILogger<BasicCommands> Logger { get; } = logger;
 
   private Random RNG { get; } = new();
@@ -43,9 +47,11 @@ internal class BasicCommands(
   [Command("test")]
   [Description("For internal use only.")]
   [AutoDelete][Secret][RequirePermissions(DiscordPermission.UseExternalApps)]
-  public async ValueTask OutputTest(CommandContext ctx)
+  public async ValueTask OutputTest(CommandContext ctx, string emojiName)
   {
-    await ctx.Channel.SendMessageAsync("R2-Dev speaking");
+    DiscordEmoji.TryFromName(ctx.Client, $":{emojiName}:",  includeGuilds: true, out var emoji);
+
+    await ctx.Channel.SendMessageAsync($"[{emojiName}: {emoji}]");
   }
 
   
@@ -106,7 +112,7 @@ internal class BasicCommands(
 
     if (ctx.Guild is null)
     {
-      await ctx.RespondAsync("[ Meep. ] I can't do that in this context. " +
+      await MaybeRespondAsync(ctx, "[ Meep. ] I can't do that in this context. " +
         "[ Zorp. ]");
       return;
     }
@@ -118,7 +124,7 @@ internal class BasicCommands(
     
     if (!rQuery.Any())
     {
-      await ctx.RespondAsync("[ Boop. ] I couldn't find a role called " +
+      await MaybeRespondAsync(ctx, "[ Boop. ] I couldn't find a role called " +
         $"{roleName} in {guildName}. [ Beep boop. ]");
       return;
     }
@@ -130,7 +136,7 @@ internal class BasicCommands(
 
     if (!mQuery.Any())
     {
-      await ctx.RespondAsync($"[ Boop. ] No members of {guildName} " +
+      await MaybeRespondAsync(ctx, $"[ Boop. ] No members of {guildName} " +
         $"who have the role {roleName}. [ Boop beep. ]");
       return;
     }
@@ -166,7 +172,7 @@ internal class BasicCommands(
 
     if (ctx.Guild is null)
     {
-      await ctx.RespondAsync("[ Meep. ] I can't do that in this context. " +
+      await MaybeRespondAsync(ctx, "[ Meep. ] I can't do that in this context. " +
         "[ Zorp. ]");
       return;
     }
@@ -181,7 +187,7 @@ internal class BasicCommands(
     
     if (!mQuery.Any())
     {
-      await ctx.RespondAsync("[ Boop. ] I couldn't find a member named " +
+      await MaybeRespondAsync(ctx, "[ Boop. ] I couldn't find a member named " +
         $"{memberName} in {guildName}. [ Boop beep. ]");
       return;
     }
@@ -221,7 +227,7 @@ internal class BasicCommands(
 
     if (!urlInfo.IsValid)
     {
-      await ctx.RespondAsync("[ Meep. ] Invalid URL. [ Zorp. ]");
+      await MaybeRespondAsync(ctx, "[ Meep. ] Invalid URL. [ Zorp. ]");
 
       return;
     }
@@ -291,6 +297,12 @@ internal class BasicCommands(
     [RemainingText]
     string text = "")
   {
+    if (string.IsNullOrWhiteSpace(text))
+    {
+      await MaybeRespondAsync(ctx, "[ Barp. ] You need to give me something to say. [ Glmp. ]");
+      return;
+    }
+
     await ctx.Channel.TriggerTypingAsync();
     var sb = new StringBuilder();
 
@@ -301,7 +313,7 @@ internal class BasicCommands(
       if (sb.Length <= 0)
       {
         var str = Formatter.InlineCode(text);
-        await ctx.Channel.SendMessageAsync(
+        await MaybeRespondAsync(ctx,
           $"[ Zip bip. ] I tried to make {str} dance, but I just couldn't do it. [ Plibt. ]");
         return;
       }
@@ -374,5 +386,44 @@ internal class BasicCommands(
 
     foreach (var message in messages)
       await ctx.Channel.SendMessageAsync(message);
+  }
+
+
+  
+  public async ValueTask React(CommandContext ctx,
+    string emojiName, int index)
+  {
+    if (index < 0)
+    {
+      await MaybeRespondAsync(ctx,
+        "[ Skrp. ] Please provide a message index (i.e. a number) after the emoji name. [ Kip. ]");
+      return;
+    }
+
+    DiscordEmoji? emoji;
+
+    if (!Catalog.Emoji.TryGetValue(emojiName, out emoji))
+    {
+      if (!DiscordEmoji.TryFromName(ctx.Client, $":{emojiName}:",
+        includeGuilds: true, out emoji))
+      {
+      await MaybeRespondAsync(ctx,
+        "[ Skrp. ] I couldn't find an emoji by that name. [ Kip. ]");
+        return;
+      }
+    }
+
+    var messages = ctx.Channel.GetMessagesAsync(index);
+    var messageToReactTo = await messages.LastAsync();
+
+    await messageToReactTo.CreateReactionAsync(emoji);
+    // Next I'll want to use messageToReactTo.WaitForReactionAsync somehow
+  }
+
+
+  private async ValueTask MaybeRespondAsync(CommandContext ctx, string content)
+  {
+    if (!Settings.Noisy) return;
+    await ctx.RespondAsync(content);
   }
 }

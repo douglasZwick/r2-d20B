@@ -1,8 +1,12 @@
+using DSharpPlus.Entities;
+
 namespace R2D20B;
 
 
 internal sealed class EmojiCatalog
 {
+  public Dictionary<string, DiscordEmoji> Emoji { get; } = [];
+
   public static string Empty { get; } = "<:blank:1455741196474519789>";
 
   public static string Clean { get; } = "<a:clean:1455055703038234768>";
@@ -103,4 +107,10 @@ internal sealed class EmojiCatalog
     { 'Y', DanceY },
     { 'Z', DanceZ },
   };
+
+
+  public void Register(string key, DiscordEmoji value)
+  {
+    Emoji.TryAdd(key, value);
+  }
 }

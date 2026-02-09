@@ -23,6 +23,7 @@ namespace R2D20B.Commands;
 internal class AudioCommands(
   IAudioService audioService,
   SoundCatalog soundCatalog,
+  BotSettings settings,
   ILogger<AudioCommands> logger)
 {
   private static readonly string s_ExampleUrl = "https://www.youtube.com/watch?v=9FLRHejWAo8";
@@ -38,6 +39,7 @@ internal class AudioCommands(
 
   private IAudioService AudioService { get; init; } = audioService;
   private SoundCatalog SoundCatalog { get; init; } = soundCatalog;
+  private BotSettings Settings { get; } = settings;
   private ILogger<AudioCommands> Logger { get; init; } = logger;
 
   
@@ -150,7 +152,7 @@ internal class AudioCommands(
 
     if (!await Guards.RequirePlayerAsync(ctx, result)) return;
 
-    await ctx.EditResponseAsync(new DiscordFollowupMessageBuilder()
+    await MaybeRespondAsync(ctx, new DiscordFollowupMessageBuilder()
       .WithContent($"[ Boop. ] Okay, I've joined you. [ Meep. ]")).ConfigureAwait(false);
   }
 
@@ -174,7 +176,7 @@ internal class AudioCommands(
         + $"Result status: {result.Status}");
 
     await result.Player.DisposeAsync();
-    await ctx.EditResponseAsync(new DiscordFollowupMessageBuilder()
+    await MaybeRespondAsync(ctx, new DiscordFollowupMessageBuilder()
       .WithContent($"[ Boop. ] Okay, I've left. [ Meep. ]")).ConfigureAwait(false);
   }
 
@@ -518,17 +520,17 @@ internal class AudioCommands(
         .WithContent(errorMessage)
         .AsEphemeral();
       
-      await ctx.EditResponseAsync(errorResponse).ConfigureAwait(false);
+      await MaybeRespondAsync(ctx, errorResponse).ConfigureAwait(false);
 
       return;
     }
 
-    var position = await result.Player.PlayAsync(track).ConfigureAwait(false);
+    // var position = await result.Player.PlayAsync(track).ConfigureAwait(false);
 
     var name = searchModeOrNull is null ? userInput : track.Uri?.ToString();
     var successMessage = $"[ Beep. ] Now playing: {name} [ Boop. ]";
 
-    await ctx.EditResponseAsync(new DiscordFollowupMessageBuilder()
+    await MaybeRespondAsync(ctx, new DiscordFollowupMessageBuilder()
       .WithContent(successMessage).AsEphemeral()).ConfigureAwait(false);
     
     if (ctx is TextCommandContext textCtx)
@@ -536,15 +538,15 @@ internal class AudioCommands(
   }
 
 
-  private static async ValueTask StopHelper(CommandContext ctx, PlayerRetrieveResult result)
+  private async ValueTask StopHelper(CommandContext ctx, PlayerRetrieveResult result)
   {
     if (result.Player is null) throw new InvalidOperationException(
       $"Expected {result.GetType().Name}.{nameof(result.Player)} not to be null, but it was. "
         + $"Result status: {result.Status}");
     
     await result.Player.StopAsync();
-    await ctx.EditResponseAsync(new DiscordFollowupMessageBuilder()
-      .WithContent("[ Borp. ] Audio stopped. [ Boople. ]")).ConfigureAwait(false);
+    await MaybeRespondAsync(ctx, new DiscordFollowupMessageBuilder()
+      .WithContent("[ Borp. ] Audio stopped. [ Boople. ]"));
   }
 
 
@@ -570,5 +572,13 @@ internal class AudioCommands(
       isSuccess: result.IsSuccess,
       status: result.Status,
       player: result.Player);
+  }
+
+
+  private async ValueTask MaybeRespondAsync(CommandContext ctx,
+    DiscordFollowupMessageBuilder builder)
+  {
+    if (!Settings.Noisy) return;
+    await ctx.EditResponseAsync(builder).ConfigureAwait(false);
   }
 }

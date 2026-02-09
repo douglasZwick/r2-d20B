@@ -1,7 +1,7 @@
 namespace R2D20B;
 
 
-internal class BotConfig
+internal class EnvironmentInterface
 {
   public static string GetToken()
   {
