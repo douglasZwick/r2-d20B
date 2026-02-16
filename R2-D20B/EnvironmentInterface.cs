@@ -1,3 +1,5 @@
+#define DOKKU
+
 namespace R2D20B;
 
 
@@ -5,9 +7,13 @@ internal class EnvironmentInterface
 {
   public static string GetToken()
   {
+#if DOKKU
+    var tokenName = "DISCORD_TOKEN";
+#else
     var env = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT");
     var tokenName = string.Equals(env, "Development", StringComparison.OrdinalIgnoreCase)
       ? "DISCORD_TOKEN_DEV" : "DISCORD_TOKEN_PROD";
+#endif
     
     return Environment.GetEnvironmentVariable(tokenName)
       ?? throw new InvalidOperationException(
