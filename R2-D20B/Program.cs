@@ -56,7 +56,8 @@ internal class Program
     builder.Services.AddCommandsExtension((sp, commands) =>
     {
       sp.GetRequiredService<CommandRegistry>().Initialize(commands);
-      commands.AddCommands(typeof(BasicCommands).Assembly);
+      // commands.AddCommands(typeof(BasicCommands).Assembly);
+      commands.AddCommands(typeof(BasicCommands));
     });
     builder.Services.ConfigureEventHandlers(b =>
     {
@@ -74,32 +75,32 @@ internal class Program
     /// 
     //////
     
-    builder.Services.ConfigureLavalink(config =>
-    {
-      var section = builder.Configuration.GetRequiredSection("Lavalink");
+    // builder.Services.ConfigureLavalink(config =>
+    // {
+    //   var section = builder.Configuration.GetRequiredSection("Lavalink");
 
-      static string Require(IConfigurationSection s, string key) =>
-        s[key] ?? throw new InvalidOperationException(
-          $"Lavalink setting '{key}' is missing from appsettings.json.");
+    //   static string Require(IConfigurationSection s, string key) =>
+    //     s[key] ?? throw new InvalidOperationException(
+    //       $"Lavalink setting '{key}' is missing from appsettings.json.");
 
-      config.BaseAddress = new Uri(Require(section, "BaseAddress"));
-      config.Passphrase = EnvironmentInterface.GetLavalinkServerPassword();
-      config.ReadyTimeout = TimeSpan.FromSeconds(30);
-    });
-    builder.Services.AddOptions<SoundOptions>()
-      .Bind(builder.Configuration.GetRequiredSection("Sounds"))
-      .Validate(o => !string.IsNullOrWhiteSpace(o.RootPath),
-        "'Sounds: RootPath' is missing or empty.");
-    builder.Services.PostConfigure<SoundOptions>(o =>
-    {
-      if (string.IsNullOrWhiteSpace(o.RootPath)) return;
+    //   config.BaseAddress = new Uri(Require(section, "BaseAddress"));
+    //   config.Passphrase = EnvironmentInterface.GetLavalinkServerPassword();
+    //   config.ReadyTimeout = TimeSpan.FromSeconds(30);
+    // });
+    // builder.Services.AddOptions<SoundOptions>()
+    //   .Bind(builder.Configuration.GetRequiredSection("Sounds"))
+    //   .Validate(o => !string.IsNullOrWhiteSpace(o.RootPath),
+    //     "'Sounds: RootPath' is missing or empty.");
+    // builder.Services.PostConfigure<SoundOptions>(o =>
+    // {
+    //   if (string.IsNullOrWhiteSpace(o.RootPath)) return;
 
-      var baseDir = AppContext.BaseDirectory;
-      o.RootPath = Path.GetFullPath(
-        Path.IsPathRooted(o.RootPath) ? o.RootPath : Path.Combine(baseDir, o.RootPath));
-    });
-    builder.Services.AddSingleton<SoundCatalog>();
-    builder.Services.AddLavalink();
+    //   var baseDir = AppContext.BaseDirectory;
+    //   o.RootPath = Path.GetFullPath(
+    //     Path.IsPathRooted(o.RootPath) ? o.RootPath : Path.Combine(baseDir, o.RootPath));
+    // });
+    // builder.Services.AddSingleton<SoundCatalog>();
+    // builder.Services.AddLavalink();
 
     //////
     /// 
@@ -116,8 +117,8 @@ internal class Program
     // TODO: Look into whether I can hook the events via the client somewhere around here,
     //   rather than via the lambda-within-lambda approach above
 
-    var hostEnvironment = host.Services.GetRequiredService<IHostEnvironment>();
-    Console.WriteLine($"Running in {hostEnvironment.EnvironmentName}...");
+    // var hostEnvironment = host.Services.GetRequiredService<IHostEnvironment>();
+    // Console.WriteLine($"Running in {hostEnvironment.EnvironmentName}...");
 
     await host.RunAsync();
   }
